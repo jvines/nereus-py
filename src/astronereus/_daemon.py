@@ -13,6 +13,7 @@ import os
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -102,24 +103,50 @@ class JuliaDaemon:
         self._proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=log)
         atexit.register(self.stop)
 
-        deadline = time.time() + self.startup_timeout
+        # Julia's output goes to the log, not the terminal -- it is noisy and
+        # would interleave with the caller's own. But startup can take MINUTES
+        # when a package needs recompiling, and a silent multi-minute wait with
+        # the log in an unannounced mkdtemp is indistinguishable from a hang.
+        # So: say where the log is, and tick while waiting.
+        tty = sys.stderr.isatty()
+        t0 = time.time()
+        announced = False
+        deadline = t0 + self.startup_timeout
         while time.time() < deadline:
             if self._proc.poll() is not None:
                 raise DaemonError(
                     f"daemon exited with {self._proc.returncode}\n"
+                    f"  log: {self.log_path}\n"
                     f"--- log ---\n{self.log_path.read_text(errors='replace')[-4000:]}")
             if self.sock_path.exists():
                 try:
                     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     s.connect(str(self.sock_path))
                     self._sock = s
+                    if announced and tty:
+                        print(f"\r  daemon ready ({time.time() - t0:.0f}s)"
+                              + " " * 30, file=sys.stderr, flush=True)
                     return self
                 except OSError:
                     pass
+            waited = time.time() - t0
+            # 3 s: long enough that a warm start stays quiet, short enough that
+            # nobody wonders whether it is stuck.
+            if tty and waited > 3.0:
+                if not announced:
+                    announced = True
+                    print(f"astronereus: starting the Julia daemon "
+                          f"(log: {self.log_path})", file=sys.stderr, flush=True)
+                print(f"\r  waiting … {waited:.0f}s of {self.startup_timeout:.0f}s",
+                      end="", file=sys.stderr, flush=True)
             time.sleep(0.1)
         self.stop()
         raise DaemonError(
-            f"daemon did not become ready within {self.startup_timeout}s\n"
+            f"daemon did not become ready within {self.startup_timeout}s.\n"
+            "  If it was still precompiling, that is not a failure, just a\n"
+            "  longer wait than the default allows -- raise it with\n"
+            "  astronereus.session(startup_timeout=1200).\n"
+            f"  log: {self.log_path}\n"
             f"--- log ---\n{self.log_path.read_text(errors='replace')[-4000:]}")
 
     def stop(self) -> None:
