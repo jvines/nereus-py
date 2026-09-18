@@ -68,6 +68,10 @@ class JuliaDaemon:
         self._proc: subprocess.Popen | None = None
         self._sock: socket.socket | None = None
         self._lock = threading.Lock()
+        # set up by start(); declared here so stop() is safe before it runs
+        self._log_fh = None
+        self._forward: threading.Event | None = None
+        self._pump_thread: threading.Thread | None = None
         self._tmp = Path(tempfile.mkdtemp(prefix="nereus-daemon-"))
         self.sock_path = self._tmp / "daemon.sock"
         self.log_path = self._tmp / "daemon.log"
@@ -99,8 +103,36 @@ class JuliaDaemon:
             cmd += [str(entry), str(self.sock_path), str(ppid),
                     str(self.idle_timeout)]
 
-        log = self.log_path.open("wb")
-        self._proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=log)
+        # Julia's startup output goes to YOUR TERMINAL until the daemon is
+        # ready, and to the log always.
+        #
+        # It used to go only to a log inside an unannounced mkdtemp. Starting
+        # the daemon can take minutes when a package needs recompiling, so that
+        # was minutes of silence with the only diagnostic somewhere the user
+        # was never told about. "Tail this file from another terminal" is not
+        # an answer; the output belongs where the person is looking.
+        #
+        # Forwarding stops once the socket answers: after that the daemon is
+        # long-lived and its chatter would interleave with the caller's own
+        # output. The log keeps everything either way.
+        self._log_fh = self.log_path.open("w", buffering=1, errors="replace")
+        self._forward = threading.Event()
+        self._forward.set()
+        self._proc = subprocess.Popen(
+            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, errors="replace")
+
+        def _pump(stream, fh, forward):
+            for line in stream:
+                fh.write(line)
+                if forward.is_set():
+                    sys.stderr.write("  julia| " + line)
+                    sys.stderr.flush()
+
+        self._pump_thread = threading.Thread(
+            target=_pump, args=(self._proc.stdout, self._log_fh, self._forward),
+            daemon=True)
+        self._pump_thread.start()
         atexit.register(self.stop)
 
         # Julia's output goes to the log, not the terminal -- it is noisy and
@@ -123,22 +155,19 @@ class JuliaDaemon:
                     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     s.connect(str(self.sock_path))
                     self._sock = s
+                    self._forward.clear()      # daemon is live; stop echoing
                     if announced and tty:
-                        print(f"\r  daemon ready ({time.time() - t0:.0f}s)"
-                              + " " * 30, file=sys.stderr, flush=True)
+                        print(f"astronereus: daemon ready "
+                              f"({time.time() - t0:.0f}s)",
+                              file=sys.stderr, flush=True)
                     return self
                 except OSError:
                     pass
-            waited = time.time() - t0
-            # 3 s: long enough that a warm start stays quiet, short enough that
-            # nobody wonders whether it is stuck.
-            if tty and waited > 3.0:
-                if not announced:
-                    announced = True
-                    print(f"astronereus: starting the Julia daemon "
-                          f"(log: {self.log_path})", file=sys.stderr, flush=True)
-                print(f"\r  waiting … {waited:.0f}s of {self.startup_timeout:.0f}s",
-                      end="", file=sys.stderr, flush=True)
+            if tty and not announced and time.time() - t0 > 3.0:
+                announced = True
+                print(f"astronereus: starting the Julia daemon "
+                      f"(up to {self.startup_timeout:.0f}s; log: {self.log_path})",
+                      file=sys.stderr, flush=True)
             time.sleep(0.1)
         self.stop()
         raise DaemonError(
@@ -160,12 +189,26 @@ class JuliaDaemon:
             except Exception:
                 pass
             self._sock = None
+        if self._forward is not None:
+            self._forward.clear()      # never echo a dying daemon's output
         if self._proc is not None:
             try:
                 self._proc.wait(timeout=10)
             except Exception:
                 self._proc.kill()
             self._proc = None
+        # After the process is gone the pump drains and exits on EOF. Join
+        # briefly so the log is complete before anyone reads it for an error
+        # message; it is a daemon thread, so a hung read cannot block exit.
+        if self._pump_thread is not None:
+            self._pump_thread.join(timeout=2.0)
+            self._pump_thread = None
+        if self._log_fh is not None:
+            try:
+                self._log_fh.close()
+            except Exception:
+                pass
+            self._log_fh = None
 
     # -- transport ---------------------------------------------------------
     def _send(self, obj) -> None:
