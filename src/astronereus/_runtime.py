@@ -123,6 +123,72 @@ def is_installed(version: str = JULIA_VERSION) -> bool:
     return find_julia(d) is not None and (d / "depot").is_dir()
 
 
+def _fmt_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024
+    return f"{n:.1f}GB"
+
+
+def _fmt_secs(s: float) -> str:
+    s = int(max(s, 0))
+    return f"{s//60}m{s%60:02d}s" if s >= 60 else f"{s}s"
+
+
+def _bar(done: int, total: int, elapsed: float, width: int = 26) -> str:
+    rate = done / elapsed if elapsed > 0 else 0.0
+    if total > 0:
+        frac = min(done / total, 1.0)
+        filled = int(width * frac)
+        eta = (total - done) / rate if rate > 0 else 0.0
+        return (f"  [{'=' * filled}{' ' * (width - filled)}] {frac * 100:5.1f}%  "
+                f"{_fmt_bytes(done)}/{_fmt_bytes(total)}  "
+                f"{_fmt_bytes(rate)}/s  ETA {_fmt_secs(eta)}")
+    # no Content-Length: report what we can rather than a fake percentage
+    return f"  {_fmt_bytes(done)} downloaded  {_fmt_bytes(rate)}/s"
+
+
+def _download(url: str, dest: Path, progress: bool = True) -> None:
+    """Stream `url` to `dest`, drawing a progress bar on a TTY.
+
+    Stdlib only, deliberately: this package's only required dependency is
+    zstandard (and only below Python 3.14), and a progress bar is not worth
+    adding another. Falls back to silence when stderr is not a TTY, so CI logs
+    do not fill with carriage returns.
+
+    The timeout matters as much as the bar. Before this, a stalled connection
+    hung forever with no output at all, which is indistinguishable from a slow
+    one -- and this is a ~480 MB download that people run on conference wifi.
+    """
+    import time
+    # Static UA: the version lives in __init__.py and importing it here
+    # would be circular. Not worth a second copy to drift.
+    req = urllib.request.Request(url, headers={"User-Agent": "astronereus"})
+    tty = progress and sys.stderr.isatty()
+    with urllib.request.urlopen(req, timeout=60) as r, dest.open("wb") as out:
+        total = int(r.headers.get("Content-Length") or 0)
+        done = 0
+        t0 = last = time.monotonic()
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            out.write(chunk)
+            done += len(chunk)
+            now = time.monotonic()
+            if tty and now - last >= 0.2:
+                last = now
+                print("\r" + _bar(done, total, now - t0), end="",
+                      file=sys.stderr, flush=True)
+    if tty:
+        print("\r" + _bar(done, total, time.monotonic() - t0) + "\n",
+              end="", file=sys.stderr, flush=True)
+    if total and done < total:
+        raise BundleError(
+            f"download truncated: got {done} of {total} bytes from {url}")
+
+
 def _verify(path: Path, sha256: str | None) -> None:
     if not sha256:
         return
@@ -209,13 +275,26 @@ def warm(version: str = JULIA_VERSION, progress: bool = True) -> float:
         print("astronereus: warming the runtime (one-time, a few minutes) …",
               file=sys.stderr, flush=True)
     t0 = time.time()
-    r = subprocess.run([str(julia), "--startup-file=no", "-e", "using Nereus"],
-                       env=env, capture_output=True, text=True)
+    # Popen + poll rather than run(), purely so the wait is visible. This step
+    # is minutes of a single-threaded recompile with no output of its own, and
+    # silence that long is indistinguishable from a hang.
+    proc = subprocess.Popen(
+        [str(julia), "--startup-file=no", "-e", "using Nereus"],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    tty = progress and sys.stderr.isatty()
+    while proc.poll() is None:
+        time.sleep(1.0)
+        if tty:
+            print(f"\r  compiling … {_fmt_secs(time.time() - t0)} elapsed",
+                  end="", file=sys.stderr, flush=True)
+    if tty:
+        print("\r" + " " * 46 + "\r", end="", file=sys.stderr, flush=True)
+    _, stderr_text = proc.communicate()
     dt = time.time() - t0
-    if r.returncode != 0:
+    if proc.returncode != 0:
         raise BundleError(
             "runtime unpacked but `using Nereus` failed — the bundle is broken.\n"
-            + (r.stderr or "")[-1500:])
+            + (stderr_text or "")[-1500:])
     if progress:
         print(f"astronereus: ready ({dt:.0f}s)", file=sys.stderr, flush=True)
     return dt
@@ -256,8 +335,7 @@ def install(version: str = JULIA_VERSION, url: str | None = None,
         src = url[7:] if url.startswith("file://") else url
         shutil.copyfile(src, archive)
     else:
-        with urllib.request.urlopen(url) as r, archive.open("wb") as out:
-            shutil.copyfileobj(r, out)
+        _download(url, archive, progress=progress)
 
     _verify(archive, sha256)
 
