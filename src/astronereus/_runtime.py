@@ -275,6 +275,28 @@ def default_bundle(version: str = JULIA_VERSION) -> tuple[str, str]:
     return BUNDLES[tag]
 
 
+def _precompile_tasks() -> int:
+    """How many precompile workers this machine can survive.
+
+    Julia defaults to `Sys.CPU_THREADS + 1` (base/precompilation.jl), capped at
+    16. That is tuned for machines with RAM proportional to cores. A fanless
+    8-core / 8 GB laptop therefore fans out to NINE workers, and this dependency
+    tree contains Makie, which alone took 121 s and gigabytes in one worker.
+    Memory runs out, the kernel kills a worker, and Julia reports it as
+    "Failed to precompile <whatever package that worker held>" -- so the named
+    package looks arbitrary and the real cause is invisible.
+
+    One worker per 4 GB, never more than the core count, never fewer than one.
+    Slower on a small machine; finishes, which the default does not.
+    """
+    cpus = os.cpu_count() or 1
+    try:
+        ram = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        return max(1, min(cpus, 2))     # unknown RAM: be conservative
+    return max(1, min(cpus, int(ram / (4 * 1024 ** 3))))
+
+
 def warm(version: str = JULIA_VERSION, progress: bool = True) -> float:
     """Force the one-time post-relocation recompile now. Returns seconds spent.
 
@@ -291,8 +313,11 @@ def warm(version: str = JULIA_VERSION, progress: bool = True) -> float:
     """
     import time, subprocess
     julia, env = julia_env(version)
+    # Respect an explicit choice; otherwise cap by RAM, not by core count.
+    env.setdefault("JULIA_NUM_PRECOMPILE_TASKS", str(_precompile_tasks()))
     if progress:
-        print("astronereus: warming the runtime (one-time, a few minutes) …",
+        print(f"astronereus: warming the runtime (one-time, several minutes; "
+              f"{env['JULIA_NUM_PRECOMPILE_TASKS']} compile workers) …",
               file=sys.stderr, flush=True)
     t0 = time.time()
     # Popen + poll rather than run(), purely so the wait is visible. This step
@@ -312,9 +337,21 @@ def warm(version: str = JULIA_VERSION, progress: bool = True) -> float:
     _, stderr_text = proc.communicate()
     dt = time.time() - t0
     if proc.returncode != 0:
+        # HEAD and tail, not just the tail. A Julia precompile failure puts the
+        # actual cause on the FIRST lines ("Failed to precompile X", then the
+        # error); everything after is stack frames through Base.require. Taking
+        # only stderr[-1500:] reliably threw away the one thing needed to
+        # diagnose it and kept the part nobody can act on.
+        err = (stderr_text or "").strip()
+        if len(err) > 3000:
+            err = err[:1800] + "\n\n  … {} chars omitted …\n\n".format(
+                len(err) - 2800) + err[-1000:]
         raise BundleError(
-            "runtime unpacked but `using Nereus` failed — the bundle is broken.\n"
-            + (stderr_text or "")[-1500:])
+            "runtime unpacked but `using Nereus` failed.\n"
+            f"  runtime: {runtime_dir(version)}\n"
+            "  This is the post-relocation recompile, so the usual cause is a\n"
+            "  package that cannot rebuild at the new path. Full log:\n\n"
+            + err)
     if progress:
         print(f"astronereus: ready ({dt:.0f}s)", file=sys.stderr, flush=True)
     return dt
