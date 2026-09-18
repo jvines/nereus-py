@@ -35,6 +35,12 @@ from pathlib import Path
 
 JULIA_VERSION = "1.11.9"
 
+# Guards the auto-install path in julia_env(). install() calls warm(), warm()
+# calls julia_env(), and julia_env() auto-installs when nothing is there -- so a
+# bundle that unpacks but is BROKEN (no julia binary, so is_installed() stays
+# false) would otherwise re-download half a gigabyte forever.
+_AUTO_INSTALLING = False
+
 # Set at BUILD time. Recorded here so the build and the docs cannot drift.
 CPU_TARGETS = {
     # These are the strings tools/build_bundle.sh actually passes as
@@ -133,7 +139,7 @@ def _verify(path: Path, sha256: str | None) -> None:
 # Published runtime bundles, per platform: (url, sha256).
 #
 # Built by tools/build_bundle.sh, which prints the exact line to paste here.
-# BOTH bundles below were built from Nereus.jl commit 9f74632 — the same
+# BOTH bundles below were built from Nereus.jl commit b52c9e6 -- the same
 # commit, which the previous pair were not: they came from two different
 # commits about forty minutes apart and neither matched the comment that
 # claimed to describe them. Each bundle now carries BUILD_INFO.txt with its
@@ -325,8 +331,38 @@ def julia_env(version: str) -> tuple[Path, dict[str, str]]:
 
     d = runtime_dir(version)
     if not is_installed(version):
-        raise BundleError(f"runtime not installed at {d}; call astronereus.install() "
-                          "(or set NEREUS_JULIA to a julia binary for dev)")
+        # Fetch it now rather than telling the user to run a second command.
+        #
+        # `pip install astronereus` CANNOT do this: wheels have no post-install
+        # hook (PEP 427), and setuptools' post-install cmdclass only fires when
+        # installing from an sdist. So the runtime has to arrive on first use.
+        # Doing it here, at the point someone actually asked for a fit, is the
+        # only place it can happen without them running `install()` by hand --
+        # and asking for a fit is consent enough to fetch what a fit needs.
+        #
+        # NEREUS_NO_AUTO_INSTALL=1 restores the old behaviour (raise and tell
+        # the caller what to run) for CI and air-gapped machines, where a
+        # surprise half-gigabyte download is worse than a clear failure.
+        if os.environ.get("NEREUS_NO_AUTO_INSTALL"):
+            raise BundleError(
+                f"runtime not installed at {d}, and NEREUS_NO_AUTO_INSTALL is "
+                "set. Run astronereus.install() explicitly, or set "
+                "NEREUS_BUNDLE_URL to a local bundle.")
+        global _AUTO_INSTALLING
+        if _AUTO_INSTALLING:
+            raise BundleError(
+                f"runtime still missing at {d} after an install attempt -- the "
+                "bundle unpacked but carries no julia binary, so it is broken. "
+                "Remove that directory and retry, or report the bundle.")
+        print("astronereus: no Julia runtime yet -- fetching it once now.",
+              file=sys.stderr, flush=True)
+        _AUTO_INSTALLING = True
+        try:
+            install(version)
+        finally:
+            _AUTO_INSTALLING = False
+        if not is_installed(version):
+            raise BundleError(f"automatic install did not produce a runtime at {d}")
     julia = find_julia(d)
     jshare = julia_home(d) / "share" / "julia"
     if not jshare.is_dir():

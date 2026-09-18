@@ -9,8 +9,29 @@ Nothing is compiled at install time.
 
 ```sh
 pip install astronereus
+```
+
+That is the whole install. The first time you actually ask for a fit, the
+runtime (~480 MB) is fetched and warmed once, and you are told it is happening:
+
+```
+astronereus: no Julia runtime yet -- fetching it once now.
+astronereus: fetching runtime (macos-arm64, julia 1.11.9) ...
+astronereus: unpacking ...
+astronereus: warming the runtime (one-time, a few minutes) ...
+astronereus: ready (207s)
+```
+
+`pip` cannot do that step itself -- wheels have no post-install hook -- so it
+happens on first use instead. To get it over with ahead of a workshop or a
+flight, run it deliberately:
+
+```sh
 python -c "import astronereus; astronereus.install()"
 ```
+
+`NEREUS_NO_AUTO_INSTALL=1` turns the automatic fetch off and makes the first
+call fail with instructions instead, for CI and air-gapped machines.
 
 The distribution and the import are both `astronereus`. The name `nereus` on
 PyPI belongs to an unrelated geophysics package, and a distribution whose import

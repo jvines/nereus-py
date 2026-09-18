@@ -34,7 +34,7 @@ __all__ = ["JULIA_VERSION", "CPU_TARGETS", "BundleError", "DaemonError",
            "fit_tomography", "fit_ttv", "fit_binary", "fit_joint",
            "RV", "Transit", "Astrometry", "RM", "Night", "TTV", "SB2",
            "Stopping", "engines", "channels"]
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 def daemon(**kw) -> JuliaDaemon:
