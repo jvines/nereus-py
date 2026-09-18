@@ -120,13 +120,29 @@ class JuliaDaemon:
         self._forward.set()
         self._proc = subprocess.Popen(
             cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, errors="replace")
+            bufsize=0)
 
         def _pump(stream, fh, forward):
-            for line in stream:
-                fh.write(line)
+            # CHUNKS, not lines. Julia's progress bars redraw with \r and emit
+            # no newline until they finish, so a line-based reader buffers the
+            # entire bar until the fit is over -- which is precisely when it
+            # stops being useful. Reading raw bytes also passes \r through
+            # untouched, so the bar redraws in place as intended.
+            #
+            # No prefix for the same reason: anything prepended to a \r-updated
+            # line corrupts the redraw.
+            fd = stream.fileno()
+            while True:
+                try:
+                    data = os.read(fd, 8192)
+                except (OSError, ValueError):
+                    break
+                if not data:
+                    break
+                text = data.decode("utf-8", errors="replace")
+                fh.write(text)
                 if forward.is_set():
-                    sys.stderr.write("  julia| " + line)
+                    sys.stderr.write(text)
                     sys.stderr.flush()
 
         self._pump_thread = threading.Thread(
@@ -230,6 +246,12 @@ class JuliaDaemon:
             # would otherwise each spawn a Julia process.
             if self._sock is None:
                 self.start()
+            # Echo Julia's output for the duration of the call. A fit prints a
+            # live progress bar, and it is no use in a log file: the whole
+            # point of a progress bar is to be seen while you wait. Forwarding
+            # is off between calls so the idle daemon stays quiet.
+            if self._forward is not None and sys.stderr.isatty():
+                self._forward.set()
             try:
                 self._sock.settimeout(timeout)
                 self._send({"action": action, "payload": payload or {}})
@@ -246,6 +268,9 @@ class JuliaDaemon:
                 # running in the daemon. Call stop() if you need it dead.
                 self._drop()
                 raise
+            finally:
+                if self._forward is not None:
+                    self._forward.clear()
         if not resp.get("ok"):
             raise DaemonError(resp.get("error", "unknown error") + "\n"
                               + resp.get("backtrace", ""))
