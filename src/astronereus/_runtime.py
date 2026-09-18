@@ -151,10 +151,10 @@ _REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.2.1"
 BUNDLES: dict[str, tuple[str, str]] = {
     "macos-arm64": (
         f"{_REL}/nereus-runtime-1.11.9-macos-arm64.tar.zst",
-        "fc61ccc2943e06553863b99ce55c945ff97ea1fd8e3575862eb80be51ac48a3d"),
+        "0bfcc9428bea78b76d77ae4becb6b1c67cc9baba73c8ed482bdbe5c0cd7cbc09"),
     "linux-x86_64": (
         f"{_REL}/nereus-runtime-1.11.9-linux-x86_64.tar.zst",
-        "1a1f1c7153e6f1133b39b090bfbccad2ca39fd47ed60f8d76aac33a4edf0ea8e"),
+        "d6bf0e45588c06d10b815a67836ef4f2dd7868c3fcc1786dd585b6710fc4cff7"),
 }
 
 
