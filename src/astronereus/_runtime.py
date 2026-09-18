@@ -118,9 +118,29 @@ def julia_home(root: Path) -> Path | None:
     return jb.parent.parent if jb else None
 
 
-def is_installed(version: str = JULIA_VERSION) -> bool:
+def runtime_parts(version: str = JULIA_VERSION) -> dict[str, bool]:
+    """Every piece `julia_env` requires, and whether it is present.
+
+    Kept in step with julia_env deliberately: anything that passes
+    `is_installed` must then WORK. The old check was a julia binary plus a
+    `depot/` directory, which a half-unpacked tree satisfies -- and since
+    `install()` returns early on anything that looks installed, a partial
+    runtime was unrepairable short of deleting the cache by hand.
+    """
     d = runtime_dir(version)
-    return find_julia(d) is not None and (d / "depot").is_dir()
+    jhome = julia_home(d)
+    return {
+        "julia binary": find_julia(d) is not None,
+        "depot": (d / "depot").is_dir(),
+        # relocatability depends on Julia's own stdlib depot being layered in
+        "julia stdlib depot": bool(jhome) and (jhome / "share" / "julia").is_dir(),
+        # a depot is a cache; this is the environment `using Nereus` resolves against
+        "bundled project": (d / "depot" / "dev" / "Nereus" / "Project.toml").exists(),
+    }
+
+
+def is_installed(version: str = JULIA_VERSION) -> bool:
+    return all(runtime_parts(version).values())
 
 
 def _fmt_bytes(n: float) -> str:
@@ -302,10 +322,15 @@ def warm(version: str = JULIA_VERSION, progress: bool = True) -> float:
 
 def install(version: str = JULIA_VERSION, url: str | None = None,
             sha256: str | None = None, progress: bool = True,
-            warm_after: bool = True) -> Path:
+            warm_after: bool = True, force: bool = False) -> Path:
     """Fetch and unpack the runtime bundle. Idempotent.
 
     With no `url`, uses the published bundle for this platform.
+
+    `force=True` re-fetches over an existing runtime. That is the repair path:
+    without it a runtime that is present but BROKEN could not be fixed from
+    Python at all, because install() returned early and every other entry point
+    routes through it.
 
     `version` defaults to JULIA_VERSION because the advertised call — the one in
     the README and in this package's own docstring — is a bare
@@ -313,15 +338,23 @@ def install(version: str = JULIA_VERSION, url: str | None = None,
     thing a new user would have hit.
     """
     dest = runtime_dir(version)
-    if is_installed(version):
+    if is_installed(version) and not force:
         return dest
-    _fresh = True
+    if progress and not force:
+        missing = [k for k, ok in runtime_parts(version).items() if not ok]
+        if dest.exists() and missing:
+            print(f"astronereus: runtime at {dest} is incomplete "
+                  f"(missing: {', '.join(missing)}) — refetching.",
+                  file=sys.stderr, flush=True)
     if url is None:
         url, sha256 = default_bundle(version)
         sha256 = sha256 or None
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    staging = dest.with_suffix(".partial")
+    # NOT dest.with_suffix(".partial"): with_suffix cuts at the LAST dot, so
+    # "runtime-1.11.9-macos-arm64" became "runtime-1.11.partial" -- misleading,
+    # and it would collide between two Julia versions staging at once.
+    staging = dest.parent / (dest.name + ".partial")
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)

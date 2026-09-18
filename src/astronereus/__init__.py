@@ -13,6 +13,7 @@ Julia installed and nothing is compiled at install time.
         pg = s.detect.rv_periodogram(t=t, rv=rv, rv_err=err)
 """
 from ._runtime import (JULIA_VERSION, CPU_TARGETS, BundleError, install,
+                       runtime_parts,
                        find_julia, julia_home,
                        is_installed, platform_tag, runtime_dir, cache_root,
                        julia_env)
@@ -25,7 +26,7 @@ from .stopping import Stopping
 from . import engines, channels
 from ._result import JobResult, JobFailed, Figures
 
-__all__ = ["JULIA_VERSION", "CPU_TARGETS", "BundleError", "DaemonError",
+__all__ = ["JULIA_VERSION", "CPU_TARGETS", "BundleError", "DaemonError", "runtime_parts",
            "JuliaDaemon", "Session", "install", "is_installed", "platform_tag",
            "runtime_dir", "cache_root", "julia_env", "find_julia", "julia_home",
            "daemon", "session", "run_job", "ping",
@@ -34,7 +35,7 @@ __all__ = ["JULIA_VERSION", "CPU_TARGETS", "BundleError", "DaemonError",
            "fit_tomography", "fit_ttv", "fit_binary", "fit_joint",
            "RV", "Transit", "Astrometry", "RM", "Night", "TTV", "SB2",
            "Stopping", "engines", "channels"]
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 
 def daemon(**kw) -> JuliaDaemon:
