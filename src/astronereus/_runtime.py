@@ -426,28 +426,56 @@ def install(version: str = JULIA_VERSION, url: str | None = None,
         warm(version, progress=progress)
     return dest
 
+def _no_appledouble(members):
+    """Drop AppleDouble (``._*``) sidecars while extracting.
+
+    A tarball built on macOS carries a ``._name`` companion for every file with
+    extended attributes -- half the members of a macOS bundle. macOS's own tar
+    silently folds them back into xattrs, so they are INVISIBLE to `tar -tf`
+    and to any check run on a Mac. Python's tarfile has no such behaviour and
+    writes them as real files.
+
+    That is not cosmetic. Makie globs its icon directory and calls PNGFiles on
+    whatever it finds:
+
+        File .../icons/._icon-128.png is not a png file
+
+    which kills Makie, and with it CairoMakie, PairPlots and every Makie
+    extension -- reported as six unrelated precompile failures. The bundle is
+    fine; the extractor was the difference.
+
+    Fixed at the source too (build_bundle.sh sets COPYFILE_DISABLE), but this
+    stays: it makes already-published bundles work, and costs one comparison
+    per member.
+    """
+    for m in members:
+        if not m.name.rsplit("/", 1)[-1].startswith("._"):
+            yield m
+
+
 def _extract_zst(archive: Path, dest: Path) -> None:
     """Extract .tar.zst. Prefers stdlib, falls back to the zstd binary."""
     try:
         from compression import zstd  # py3.14+
         with zstd.ZstdFile(archive, "rb") as fh, \
                 tarfile.open(fileobj=fh, mode="r|") as tar:
-            tar.extractall(dest)
+            tar.extractall(dest, members=_no_appledouble(tar))
         return
-    except Exception:
+    except ImportError:
         pass
     try:
         import zstandard  # optional dependency
         dctx = zstandard.ZstdDecompressor()
         with archive.open("rb") as fh, dctx.stream_reader(fh) as reader, \
                 tarfile.open(fileobj=reader, mode="r|") as tar:
-            tar.extractall(dest)
+            tar.extractall(dest, members=_no_appledouble(tar))
         return
     except ImportError:
         pass
     if shutil.which("zstd"):
-        subprocess.run(f"zstd -dc {archive} | tar -x -C {dest}",
-                       shell=True, check=True)
+        subprocess.run(["sh", "-c",
+                        'zstd -dc "$1" | tar -x --exclude "._*" -C "$2"',
+                        "sh", str(archive), str(dest)], check=True)
         return
     raise BundleError(
         "cannot decompress .tar.zst — install the 'zstandard' extra "

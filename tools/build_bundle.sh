@@ -146,10 +146,35 @@ find "$BUNDLE/depot/packages" -name 'docs' -type d -prune -exec rm -rf {} + 2>/d
 mkdir -p "$OUT_DIR"
 TARBALL="$OUT_DIR/nereus-runtime-${JULIA_VER}-${PLAT}.tar.zst"
 echo "==> compressing to $TARBALL"
-tar -C "$BUNDLE" -cf - . | zstd -19 -T0 -o "$TARBALL" -f
+# COPYFILE_DISABLE: without it macOS tar writes an AppleDouble "._name"
+# sidecar for every file carrying an extended attribute -- HALF the members of
+# a macOS bundle. macOS tar folds them back into xattrs on extract, so they are
+# invisible to `tar -tf` and to any check run on a Mac, but Python's tarfile
+# writes them as real files. Makie then globs its icon dir, hands PNGFiles a
+# "._icon-128.png", and dies -- taking CairoMakie, PairPlots and every Makie
+# extension with it, as six unrelated-looking precompile failures.
+# --no-mac-metadata is belt and braces on newer bsdtar.
+COPYFILE_DISABLE=1 tar -C "$BUNDLE" --no-mac-metadata -cf - . 2>/dev/null \
+  | zstd -19 -T0 -o "$TARBALL" -f \
+  || COPYFILE_DISABLE=1 tar -C "$BUNDLE" -cf - . | zstd -19 -T0 -o "$TARBALL" -f
 
 # shasum is macOS, sha256sum is GNU. The bundle has to be buildable on both —
 # that is the whole point of building per platform.
+echo "==> verifying no AppleDouble sidecars survived"
+# NOT `tar -tf`: bsdtar folds AppleDouble entries back into xattrs on READ as
+# well as extract, so a macOS tar reports zero even when half the archive is
+# "._*". That false negative is exactly how a bundle with 29,767 of them
+# shipped. Grep the decompressed stream instead -- tar stores names as plain
+# text, and this needs no tar implementation at all. A handful of matches may
+# come from file contents rather than headers; for a yes/no gate that is fine.
+AD=$(zstd -dc "$TARBALL" | LC_ALL=C grep -a -c '/\._' || true)
+if [ "${AD:-0}" -ne 0 ]; then
+  echo "refusing to ship: $AD AppleDouble (._*) entries in the tarball." >&2
+  echo "They break Python-side extraction; see _no_appledouble in _runtime.py." >&2
+  exit 1
+fi
+echo "    clean"
+
 if command -v sha256sum >/dev/null; then
   SHA=$(sha256sum "$TARBALL" | cut -d' ' -f1)
 else
