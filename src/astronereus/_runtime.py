@@ -143,6 +143,36 @@ def is_installed(version: str = JULIA_VERSION) -> bool:
     return all(runtime_parts(version).values())
 
 
+def show_progress() -> bool:
+    """Whether to echo progress to stderr.
+
+    `sys.stderr.isatty()` alone is WRONG. Under Jupyter, stderr is an
+    ipykernel OutStream whose isatty() returns False by default, so gating on
+    it makes notebooks completely silent -- and a notebook is exactly where
+    someone sits watching a long fit. Jupyter renders \r in place, so the
+    progress bars work there; it just is not a tty.
+
+    Piping to a file stays quiet, which is the point of checking at all.
+    NEREUS_QUIET=1 forces silence everywhere (CI, batch, logs).
+    """
+    if os.environ.get("NEREUS_QUIET"):
+        return False
+    try:
+        if sys.stderr.isatty():
+            return True
+    except Exception:
+        pass
+    ipy = sys.modules.get("IPython")
+    if ipy is not None:                      # only if already imported
+        try:
+            shell = ipy.get_ipython()
+            if shell is not None and shell.__class__.__name__ == "ZMQInteractiveShell":
+                return True                  # Jupyter / qtconsole / VS Code
+        except Exception:
+            pass
+    return False
+
+
 def _fmt_bytes(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024 or unit == "GB":
@@ -185,7 +215,7 @@ def _download(url: str, dest: Path, progress: bool = True) -> None:
     # Static UA: the version lives in __init__.py and importing it here
     # would be circular. Not worth a second copy to drift.
     req = urllib.request.Request(url, headers={"User-Agent": "astronereus"})
-    tty = progress and sys.stderr.isatty()
+    tty = progress and show_progress()
     with urllib.request.urlopen(req, timeout=60) as r, dest.open("wb") as out:
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
@@ -326,7 +356,7 @@ def warm(version: str = JULIA_VERSION, progress: bool = True) -> float:
     proc = subprocess.Popen(
         [str(julia), "--startup-file=no", "-e", "using Nereus"],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    tty = progress and sys.stderr.isatty()
+    tty = progress and show_progress()
     while proc.poll() is None:
         time.sleep(1.0)
         if tty:

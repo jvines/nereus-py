@@ -156,7 +156,7 @@ class JuliaDaemon:
         # when a package needs recompiling, and a silent multi-minute wait with
         # the log in an unannounced mkdtemp is indistinguishable from a hang.
         # So: say where the log is, and tick while waiting.
-        tty = sys.stderr.isatty()
+        tty = _runtime.show_progress()
         t0 = time.time()
         announced = False
         deadline = t0 + self.startup_timeout
@@ -250,7 +250,7 @@ class JuliaDaemon:
             # live progress bar, and it is no use in a log file: the whole
             # point of a progress bar is to be seen while you wait. Forwarding
             # is off between calls so the idle daemon stays quiet.
-            if self._forward is not None and sys.stderr.isatty():
+            if self._forward is not None and _runtime.show_progress():
                 self._forward.set()
             try:
                 self._sock.settimeout(timeout)
