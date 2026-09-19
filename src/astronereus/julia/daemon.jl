@@ -109,6 +109,12 @@ function _fit_dispatch(op::String, payload)
     planets = get(payload, :planets, 1)
     eng = _engine_of(payload)
     outdir = get(payload, :output_dir, nothing)
+    # Per-parameter priors. Every fit_* takes them through `kwargs...`, but
+    # they never crossed the wire, so a Python caller could not bracket a
+    # known period or bound a mass -- which a workshop-length run needs to
+    # converge at all. `parallax` was already forwarded separately because
+    # fit_astrometry declares it explicitly.
+    priors = _j(get(payload, :priors, Dict{String,Any}()))
     outdir = outdir === nothing ? nothing : String(outdir)
 
     f = getfield(mod, Symbol(op))
@@ -129,7 +135,7 @@ function _fit_dispatch(op::String, payload)
                           n_null = Int(get(ob, "n_null", 300)),
                           output_dir = outdir)
     elseif op == "fit_joint"
-        Base.invokelatest(f, chs...; planets, engine = eng, output_dir = outdir)
+        Base.invokelatest(f, chs...; planets, engine = eng, output_dir = outdir, priors = priors)
     elseif op == "fit_astrometry"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
         Base.invokelatest(f; iad = get(c, "iad", nothing),
@@ -138,7 +144,7 @@ function _fit_dispatch(op::String, payload)
                           relast = get(c, "relast", nothing),
                           parallax = get(c, "parallax", nothing),
                           m_pri = get(c, "m_pri", nothing),
-                          planets, engine = eng, output_dir = outdir)
+                          planets, engine = eng, output_dir = outdir, priors = priors)
     elseif op == "fit_rm"
         # fit_rm(; rv, phot, ...) is keyword-only and REQUIRES phot: the RM
         # amplitude is degenerate with the transit geometry, so a Transit
@@ -153,23 +159,23 @@ function _fit_dispatch(op::String, payload)
         Base.invokelatest(f; rv = get(rmc, "data", nothing),
                           phot = get(phc, "data", nothing),
                           flavour = Symbol(get(rmc, "flavour", "reloaded")),
-                          planets, engine = eng, output_dir = outdir)
+                          planets, engine = eng, output_dir = outdir, priors = priors)
     elseif op == "fit_ttv"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
         Base.invokelatest(f; transit_times = get(c, "transit_times", nothing),
                           nbody = Bool(get(c, "nbody", false)),
-                          planets, engine = eng, output_dir = outdir)
+                          planets, engine = eng, output_dir = outdir, priors = priors)
     elseif op == "fit_binary"
         # fit_binary takes NO `planets` keyword: the companion count is fixed
         # by the SB2/BINARY_RV model itself.
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
         Base.invokelatest(f; rv = get(c, "primary", nothing),
                           secondary = get(c, "secondary", nothing),
-                          engine = eng, output_dir = outdir)
+                          engine = eng, output_dir = outdir, priors = priors)
     else
         isempty(chs) && error("$op: no data channel in payload")
         Base.invokelatest(f, get(chs[1], "data", chs[1]);
-                          planets, engine = eng, output_dir = outdir)
+                          planets, engine = eng, output_dir = outdir, priors = priors)
     end
     return r.summary
 end

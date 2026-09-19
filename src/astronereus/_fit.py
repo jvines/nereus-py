@@ -23,8 +23,10 @@ _DEFAULT_STOP = None
 
 
 def _run(session, op: str, channels: Sequence[Channel], *, planets,
-         engine, stopping, output_dir, extra: dict[str, Any] | None = None):
+         engine, stopping, output_dir, priors=None,
+         extra: dict[str, Any] | None = None):
     payload = {
+        "priors": priors or {},
         "op": op,
         "channels": [c.to_wire() for c in channels],
         "planets": planets,
@@ -44,6 +46,7 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
            jitter: Any = "default", trend_order: int = 0,
            noise: Any = None, engine: _eng.Engine | None = None,
            stopping: Stopping | None = None, output_dir=None,
+           priors: dict | None = None,
            session=None) -> Any:
     """Fit radial velocities alone.
 
@@ -54,13 +57,14 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
                                           trend_order=trend_order)
     return _run(_sess(session), "fit_rv", [ch], planets=planets,
                 engine=engine, stopping=stopping, output_dir=output_dir,
-                extra={"noise": noise})
+                priors=priors, extra={"noise": noise})
 
 
 def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
                 limb_darkening: str = "quadratic", rho_star: Any = None,
                 gravity_darkening: bool = False, engine: _eng.Engine | None = None,
                 stopping: Stopping | None = None, output_dir=None,
+                priors: dict | None = None,
                 session=None) -> Any:
     """Fit transit photometry alone.
 
@@ -71,13 +75,14 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
         data=phot, limb_darkening=limb_darkening, rho_star=rho_star,
         gravity_darkening=gravity_darkening)
     return _run(_sess(session), "fit_transit", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors)
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
                    parallax=None, m_pri=None, planets: int = 1,
                    engine: _eng.Engine | None = None,
                    stopping: Stopping | None = None, output_dir=None,
+                   priors: dict | None = None,
                    session=None) -> Any:
     """Fit absolute or relative astrometry alone (no RV).
 
@@ -87,13 +92,14 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
     ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast,
                     parallax=parallax, m_pri=m_pri)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors)
 
 
 def fit_rm(rv_in_transit, *, phot,
            flavour: Literal["rm", "reloaded", "arome"] = "reloaded",
            vsini=None, beta=None, lambda_prior=None,
            engine: _eng.Engine | None = None, stopping: Stopping | None = None,
+           priors: dict | None = None,
            output_dir=None, session=None) -> Any:
     """Fit the Rossiter-McLaughlin effect in radial velocity.
 
@@ -107,7 +113,7 @@ def fit_rm(rv_in_transit, *, phot,
             lambda_prior=lambda_prior)
     ph = phot if isinstance(phot, Transit) else Transit(data=phot)
     return _run(_sess(session), "fit_rm", [ch, ph], planets=1,
-                engine=engine, stopping=stopping, output_dir=output_dir)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors)
 
 
 def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
@@ -159,27 +165,30 @@ def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
 
 def fit_ttv(transit_times, *, planets: int = 2, nbody: bool = False,
             engine: _eng.Engine | None = None, stopping: Stopping | None = None,
-            output_dir=None, session=None) -> Any:
+            output_dir=None, priors: dict | None = None,
+            session=None) -> Any:
     """Fit transit timing variations."""
     ch = TTV(transit_times=transit_times, nbody=nbody)
     return _run(_sess(session), "fit_ttv", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors)
 
 
 def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
                stopping: Stopping | None = None, output_dir=None,
+               priors: dict | None = None,
                session=None) -> Any:
     """Fit a spectroscopic binary (SB1 if `secondary` is None, else SB2)."""
     ch = SB2(primary=primary, secondary=secondary)
     return _run(_sess(session), "fit_binary", [ch], planets=1,
-                engine=engine, stopping=stopping, output_dir=output_dir)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors)
 
 
 # --- several techniques together ---------------------------------------------
 
 def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
               engine: _eng.Engine | None = None, stopping: Stopping | None = None,
-              output_dir=None, session=None) -> Any:
+              output_dir=None, priors: dict | None = None,
+              session=None) -> Any:
     """Fit several techniques simultaneously.
 
         fit_joint(RV(rv_data, jitter=...),
@@ -198,7 +207,7 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
             f"fit_joint with one channel — use the dedicated entry point for "
             f"{type(channels[0]).__name__} instead, it has a clearer signature")
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors)
 
 
 def _sess(session):
