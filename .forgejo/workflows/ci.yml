@@ -1,0 +1,83 @@
+# Pre-merge gate for astronereus: the leak scan and the unit tests, on every
+# pull request into develop or main.
+#
+# ZERO `uses:` STATEMENTS. The runner is registered host-mode (its labels carry
+# `:host`), so steps run directly on the box with no job container and no node
+# -- actions/checkout@v4 and every other JS action would fail before any of
+# this runs.
+#
+# Python runs in a container, never on the host: the fleet rule is no language
+# runtimes on the host.
+#
+# NO MACHINE NAMES OR PATHS IN THIS FILE. This repository is mirrored publicly
+# on every push, on EVERY branch -- a push mirror cannot be limited to one ref
+# -- so a runner label or a home directory committed here is published and
+# cannot be recalled. Those values live in the RUNNER_MATRIX Actions variable.
+# (Named RUNNER_MATRIX, not CI_MATRIX: Forgejo rejects a variable whose name
+# begins with CI.)
+
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+concurrency:
+  group: astronereus-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Leak scan and unit tests
+    runs-on: ${{ fromJSON(vars.RUNNER_MATRIX).include[0].runner }}
+    timeout-minutes: 20
+    env:
+      FORGEJO_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      CI_ROOT: ${{ fromJSON(vars.RUNNER_MATRIX).include[0].ci_root }}
+      CI_WORKSPACE: ${{ fromJSON(vars.RUNNER_MATRIX).include[0].ci_root }}/runs/${{ github.run_id }}
+      # Passed explicitly rather than left to a copy on the runner's disk:
+      # that file exists on one runner and not another, so the gate would pass
+      # or fail closed for reasons unrelated to the commit under test.
+      LEAK_PATTERNS: ${{ secrets.LEAK_PATTERNS }}
+
+    steps:
+      - name: Fetch the commit under test
+        run: |
+          set -euo pipefail
+          rm -rf "$CI_WORKSPACE"; mkdir -p "$CI_WORKSPACE"; cd "$CI_WORKSPACE"
+          git init -q .
+          git remote add origin "${{ github.server_url }}/${{ github.repository }}.git"
+          if [ -n "${PR_NUMBER:-}" ]; then REF="refs/pull/${PR_NUMBER}/head"; else REF="${{ github.ref }}"; fi
+          # The EMPTY `credential.helper=` first is load-bearing: `-c` appends
+          # to the helper list, and the host's global helper shells out to sops.
+          git -c credential.helper= \
+              -c credential.helper='!f() { echo "username=x-access-token"; echo "password=${FORGEJO_TOKEN}"; }; f' \
+              fetch -q --depth 1 origin "$REF"
+          git checkout -q FETCH_HEAD
+          echo "testing $(git rev-parse HEAD)"
+
+      - name: No internal references
+        working-directory: ${{ env.CI_WORKSPACE }}
+        run: ci/leak-scan.sh .
+
+      - name: Unit tests
+        working-directory: ${{ env.CI_WORKSPACE }}
+        run: |
+          set -euo pipefail
+          # test_smoke.py is excluded deliberately: its session fixture resolves
+          # the default bundle and downloads ~700 MB from the public release,
+          # so it tests whatever _runtime.py currently points at rather than the
+          # commit under test, and it needs egress. The release pipeline runs it
+          # against a locally staged bundle instead.
+          docker run --rm --name "astronereus-ci-${{ github.run_id }}" \
+            --label cl.jvines.owner=astronereus-ci \
+            -v "$CI_WORKSPACE":/src:ro -w /src python:3.12-slim \
+            bash -c 'pip install -q -e ".[test]" && python -m pytest tests/ -q --ignore=tests/test_smoke.py'
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker rm -f "astronereus-ci-${{ github.run_id }}" >/dev/null 2>&1 || true
+          rm -rf "$CI_WORKSPACE"
