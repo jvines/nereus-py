@@ -177,8 +177,44 @@ cat "$BUNDLE/depot/dev/Nereus/BUILD_INFO.txt"
 echo "==> pruning"
 # Registries and downloaded tarballs are build inputs, not runtime needs.
 rm -rf "$BUNDLE/depot/registries" "$BUNDLE/depot/clones" "$BUNDLE/depot/scratchspaces"
-find "$BUNDLE/depot/packages" -name 'test' -type d -prune -exec rm -rf {} + 2>/dev/null || true
-find "$BUNDLE/depot/packages" -name 'docs' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+# Each package's own top-level docs/ and test/ are not needed at runtime -- the
+# TOP level only. A bare `find -name docs` also matched src/docs inside package
+# sources: Folds builds its docstrings from src/docs/*.md, its pkgimage records
+# those files as dependencies, and deleting them made that cache stale. Every
+# v0.8.1 and v0.8.2 bundle therefore recompiled Folds, Pathfinder and Nereus on
+# first load (~40 s). A top-level dir that any pkgimage records a file in is
+# kept too. The .ji headers store those paths as plain "@depot/..." strings.
+# LC_ALL=C: the .ji files are binary, and BSD sed rejects their non-UTF-8 bytes
+# ("illegal byte sequence") under a UTF-8 locale.
+refs=$(export LC_ALL=C
+       { find "$BUNDLE/depot/compiled" -name '*.ji' \
+           -exec grep -aoh '@depot/packages/[^/]*/[^/]*/[^/]*/' {} + 2>/dev/null || true; } \
+       | sed 's|^@depot/||; s|/$||' | sort -u)
+for d in "$BUNDLE"/depot/packages/*/*/docs "$BUNDLE"/depot/packages/*/*/test; do
+  [ -d "$d" ] || continue
+  rel=${d#"$BUNDLE/depot/"}
+  if printf '%s\n' "$refs" | grep -qxF "$rel"; then
+    echo "    keeping $rel (a pkgimage depends on it)"
+  else
+    rm -rf "$d"
+  fi
+done
+
+echo "==> checking the pruned depot loads without recompiling"
+# The smoke test above runs BEFORE pruning, so it cannot see a cache that the
+# pruning made stale; that is how the src/docs deletion shipped twice. Load the
+# depot the way _runtime.py does and refuse to ship if anything recompiles.
+chk=$(env JULIA_DEBUG=loading \
+          JULIA_DEPOT_PATH="$BUNDLE/depot:$BUNDLE/julia/share/julia" \
+          JULIA_LOAD_PATH="$BUNDLE/depot/dev/Nereus:@stdlib" \
+          "$JULIA" -e 'using Nereus' 2>&1) \
+  || { printf '%s\n' "$chk" | tail -20 >&2; exit 1; }
+if printf '%s\n' "$chk" | grep -qE 'Precompiling|✓'; then
+  echo "the pruned depot no longer loads from its caches:" >&2
+  printf '%s\n' "$chk" | grep -E 'Rejecting|Precompiling|✓' | head -15 >&2
+  exit 1
+fi
+echo "pruned depot loads with no recompilation"
 
 mkdir -p "$OUT_DIR"
 TARBALL="$OUT_DIR/nereus-runtime-${JULIA_VER}-${PLAT}.tar.zst"
