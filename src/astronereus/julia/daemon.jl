@@ -702,7 +702,10 @@ const JOB_LOCK = ReentrantLock()
 #   1. parent-death: when the owner dies we are reparented (to launchd/init),
 #      so getppid() changing away from the pid we were handed means: exit.
 #   2. idle timeout: nothing has talked to us in `idle` seconds, so exit even
-#      if the parent is somehow still around but has forgotten us.
+#      if the parent is somehow still around but has forgotten us. A running
+#      job is not idle: the clock is held while JOB_LOCK is taken and restarts
+#      when the job ends. It used to count from the request alone, so every fit
+#      or plot set longer than `idle` was killed mid-run.
 #
 # Either alone would leak in some scenario; both together bound the lifetime.
 
@@ -716,7 +719,7 @@ function start_watchdog(parent_pid::Int, idle::Float64)
             println(stderr, "nereus daemon: owner $parent_pid gone — exiting")
             flush(stderr); exit(0)
         end
-        if idle > 0 && (time() - LAST_ACTIVITY[]) > idle
+        if idle > 0 && !islocked(JOB_LOCK) && (time() - LAST_ACTIVITY[]) > idle
             println(stderr, "nereus daemon: idle $(round(Int, idle))s — exiting")
             flush(stderr); exit(0)
         end
@@ -782,6 +785,7 @@ function serve(sockpath::String, readyfile::Union{Nothing,String} = nothing;
                             write_msg(conn, Dict("ok" => true,
                                                  "result" => fn(get(req, :payload, Dict()))))
                         finally
+                            touch_activity!()
                             unlock(JOB_LOCK)
                         end
                     catch err
