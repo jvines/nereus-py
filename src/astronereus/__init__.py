@@ -16,7 +16,8 @@ from ._runtime import (JULIA_VERSION, RUNTIME_VERSION, CPU_TARGETS,
                        BundleError, install,
                        runtime_parts,
                        find_julia, julia_home,
-                       is_installed, platform_tag, runtime_dir, cache_root,
+                       is_installed, installed_version, is_stale,
+                       platform_tag, runtime_dir, cache_root,
                        julia_env)
 from ._daemon import JuliaDaemon, DaemonError, FitInterrupted
 from ._api import (Session, session, run_job, ping, dataset, list_datasets,
@@ -32,7 +33,7 @@ from . import engines, channels, datasets
 from ._result import JobResult, JobFailed, Figures
 
 __all__ = ["JULIA_VERSION", "RUNTIME_VERSION", "CPU_TARGETS", "BundleError", "DaemonError", "FitInterrupted", "runtime_parts",
-           "JuliaDaemon", "Session", "install", "is_installed", "platform_tag",
+           "JuliaDaemon", "Session", "install", "is_installed", "installed_version", "is_stale", "platform_tag",
            "read_rv", "read_photometry", "read_relastrom",
            "dataset", "list_datasets", "datasets",
            "runtime_dir", "cache_root", "julia_env", "find_julia", "julia_home",

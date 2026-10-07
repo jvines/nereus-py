@@ -32,30 +32,11 @@ from typing import Any, Sequence
 
 from ._daemon import JuliaDaemon
 from ._result import JobResult, JobFailed
-from ._runtime import RUNTIME_VERSION
+from ._runtime import RUNTIME_VERSION, _ver
 from . import _features as _F
 
 _shared: "Session | None" = None
 _shared_lock = threading.Lock()
-
-
-def _ver(v: str) -> tuple[int, ...]:
-    """"0.6.0" -> (0, 6, 0). Stops at the first non-numeric part, so a
-    pre-release such as "0.7.0-DEV" compares as (0, 7, 0) -- close enough for
-    "is the cached runtime behind", and never a reason to raise at start-up."""
-    out = []
-    for part in v.strip().lstrip("v").split("."):
-        digits = ""
-        for ch in part:
-            if not ch.isdigit():
-                break
-            digits += ch
-        if not digits:
-            break
-        out.append(int(digits))
-    if not out:
-        raise ValueError(f"unparseable version {v!r}")
-    return tuple(out)
 
 
 #: Contract version this client speaks. Must match `Nereus.PY_API_VERSION` in

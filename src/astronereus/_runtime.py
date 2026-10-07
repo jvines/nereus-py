@@ -60,6 +60,25 @@ class BundleError(RuntimeError):
     pass
 
 
+def _ver(v: str) -> tuple[int, ...]:
+    """"0.6.0" -> (0, 6, 0). Stops at the first non-numeric part, so a
+    pre-release such as "0.7.0-DEV" compares as (0, 7, 0) -- close enough for
+    "is the cached runtime behind", and never a reason to raise at start-up."""
+    out = []
+    for part in v.strip().lstrip("v").split("."):
+        digits = ""
+        for ch in part:
+            if not ch.isdigit():
+                break
+            digits += ch
+        if not digits:
+            break
+        out.append(int(digits))
+    if not out:
+        raise ValueError(f"unparseable version {v!r}")
+    return tuple(out)
+
+
 def platform_tag() -> str:
     """Canonical (os, arch) tag. Windows is deliberately unsupported."""
     machine = platform.machine().lower()
@@ -141,6 +160,38 @@ def runtime_parts(version: str = JULIA_VERSION) -> dict[str, bool]:
 
 def is_installed(version: str = JULIA_VERSION) -> bool:
     return all(runtime_parts(version).values())
+
+
+def installed_version(version: str = JULIA_VERSION) -> str | None:
+    """The Nereus version of the cached runtime, read from its bundled project."""
+    toml = runtime_dir(version) / "depot" / "dev" / "Nereus" / "Project.toml"
+    try:
+        for line in toml.read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "version":
+                return value.strip().strip('"')
+    except OSError:
+        pass
+    return None
+
+
+def is_stale(version: str = JULIA_VERSION) -> bool:
+    """Whether the cached runtime is an older Nereus than this client ships against.
+
+    The runtime directory is named by Julia version alone, so without this a
+    runtime from any earlier release counted as installed: `pip install -U
+    astronereus` moved the client to a new release and every fit went on running
+    the old Nereus. A NEWER runtime is not stale -- `Session.start` already
+    rejects one whose contract this client cannot speak. Neither is a bundle
+    named by NEREUS_BUNDLE_URL: it is whatever the user handed us.
+    """
+    if os.environ.get("NEREUS_BUNDLE_URL"):
+        return False
+    got = installed_version(version)
+    try:
+        return got is not None and _ver(got) < _ver(RUNTIME_VERSION)
+    except ValueError:
+        return False
 
 
 def show_progress() -> bool:
@@ -325,12 +376,13 @@ def _verify(path: Path, sha256: str | None) -> None:
 # intermediate staging repository -- the mirror is direct. See DEPLOYMENT.md.
 _REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.8.6"
 
-#: The Nereus version inside the bundles below. A cached runtime is NOT
-#: refreshed by `pip install -U astronereus`, and `PY_API_VERSION` only catches
-#: an INCOMPATIBLE skew -- v0.6.0 fixed pt_emcee's convergence without touching
-#: the contract, so a user upgrading the client alone would have gone on running
-#: v0.5.3 with no sign of it. `Session.start()` compares this against `ping`'s
-#: `nereus` field and says what to do about it.
+#: The Nereus version inside the bundles below. `pip install -U astronereus`
+#: cannot touch the cached runtime, and `PY_API_VERSION` only catches an
+#: INCOMPATIBLE skew -- v0.6.0 fixed pt_emcee's convergence without touching the
+#: contract, so a user upgrading the client alone would have gone on running
+#: v0.5.3 with no sign of it. So a cached runtime older than this is refetched
+#: on the next start (`is_stale`); where that is switched off, `Session.start()`
+#: compares this against `ping`'s `nereus` field and says what to do about it.
 RUNTIME_VERSION = "0.8.6"
 
 BUNDLES: dict[str, tuple[str, str]] = {
@@ -458,7 +510,8 @@ def install(version: str = JULIA_VERSION, url: str | None = None,
             warm_after: bool = True, force: bool = False) -> Path:
     """Fetch and unpack the runtime bundle. Idempotent.
 
-    With no `url`, uses the published bundle for this platform.
+    With no `url`, uses the published bundle for this platform, and replaces a
+    cached runtime older than RUNTIME_VERSION (see `is_stale`).
 
     `force=True` re-fetches over an existing runtime. That is the repair path:
     without it a runtime that is present but BROKEN could not be fixed from
@@ -471,9 +524,14 @@ def install(version: str = JULIA_VERSION, url: str | None = None,
     thing a new user would have hit.
     """
     dest = runtime_dir(version)
-    if is_installed(version) and not force:
+    stale = url is None and is_installed(version) and is_stale(version)
+    if is_installed(version) and not force and not stale:
         return dest
-    if progress and not force:
+    if progress and stale and not force:
+        print(f"astronereus: the cached runtime is Nereus {installed_version(version)}; "
+              f"this client ships against {RUNTIME_VERSION} — fetching it.",
+              file=sys.stderr, flush=True)
+    elif progress and not force:
         missing = [k for k, ok in runtime_parts(version).items() if not ok]
         if dest.exists() and missing:
             print(f"astronereus: runtime at {dest} is incomplete "
@@ -601,8 +659,16 @@ def julia_env(version: str) -> tuple[Path, dict[str, str]]:
         env.pop("JULIA_PROJECT", None)
         return julia, env
 
+    global _AUTO_INSTALLING
     d = runtime_dir(version)
-    if not is_installed(version):
+    missing = not is_installed(version)
+    # An older runtime than this client ships against is replaced the same way,
+    # unless auto-install is off or an install is already under way (install()
+    # warms through here); the old runtime then still runs, and Session.start
+    # says it is behind.
+    refresh = (not missing and not _AUTO_INSTALLING
+               and not os.environ.get("NEREUS_NO_AUTO_INSTALL") and is_stale(version))
+    if missing or refresh:
         # Fetch it now rather than telling the user to run a second command.
         #
         # `pip install astronereus` CANNOT do this: wheels have no post-install
@@ -620,14 +686,14 @@ def julia_env(version: str) -> tuple[Path, dict[str, str]]:
                 f"runtime not installed at {d}, and NEREUS_NO_AUTO_INSTALL is "
                 "set. Run astronereus.install() explicitly, or set "
                 "NEREUS_BUNDLE_URL to a local bundle.")
-        global _AUTO_INSTALLING
         if _AUTO_INSTALLING:
             raise BundleError(
                 f"runtime still missing at {d} after an install attempt -- the "
                 "bundle unpacked but carries no julia binary, so it is broken. "
                 "Remove that directory and retry, or report the bundle.")
-        print("astronereus: no Julia runtime yet -- fetching it once now.",
-              file=sys.stderr, flush=True)
+        if missing:
+            print("astronereus: no Julia runtime yet -- fetching it once now.",
+                  file=sys.stderr, flush=True)
         _AUTO_INSTALLING = True
         try:
             install(version)
