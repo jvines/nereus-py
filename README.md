@@ -580,8 +580,11 @@ def transit_flux(t, P, Tc, rp, a_Rs, b, u=(0.40, 0.25), n=600):
     return 1 - np.where(np.cos(ph) > 0, lost, 0)
 
 
-def make_lc(P=3.5, Tc=59000.5, rp=0.1, a_Rs=8.0, b=0.3, n_tr=3, n=150, sig=4e-4, seed=1):
-    """{instrument: {t, flux, flux_err}} with n_tr transits."""
+def make_lc(P=3.5, Tc=59000.5, rp=0.1, a_Rs=9.70, b=0.3, n_tr=3, n=150, sig=4e-4, seed=1):
+    """{instrument: {t, flux, flux_err}} with n_tr transits.
+
+    a_Rs = 9.70 is a 3.5 d orbit around the Sun: the fits below give M_s = R_s = 1,
+    which sets a/R* to that value, so the light curve must have it too."""
     rng = np.random.default_rng(seed)
     t = np.sort(np.concatenate([rng.uniform(Tc + i * P - 0.3, Tc + i * P + 0.3, n)
                                 for i in range(n_tr)]))
@@ -811,7 +814,7 @@ import numpy as np
 import astronereus
 from synth import make_lc, phot_blocks, rv_values, transit_flux, show
 
-P, Tc, rp, a_Rs, b, vsini = 3.5, 59000.5, 0.1, 8.0, 0.3, 10_000.0      # vsini in m/s
+P, Tc, rp, a_Rs, b, vsini = 3.5, 59000.5, 0.1, 9.70, 0.3, 10_000.0     # vsini in m/s
 lam = np.deg2rad(30.0)                                                  # true obliquity
 rng = np.random.default_rng(4)
 t = np.sort(np.concatenate([rng.uniform(Tc - 0.2, Tc + 0.2, 40),        # in transit
