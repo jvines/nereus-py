@@ -114,7 +114,8 @@ class Figures(Mapping):
 _UNITS = {
     "P": "d", "K": "m/s", "K_A": "m/s", "K_B": "m/s",
     "a": "AU", "M_sec": "M_sun", "M_pri": "M_sun", "M_s": "M_sun",
-    "plx": "mas", "rho_s": "g/cm3",
+    "plx": "mas",
+    "rho_s": "rho_sun",             # sampled as rho_star / rho_sun (1.411 g/cm3)
     "Tp": "BJD", "Tc": "BJD", "T14": "d",
     "sesinw": "", "secosw": "", "esinw": "", "ecosw": "", "ecc": "",
     "b": "", "rr": "", "q1": "", "q2": "",

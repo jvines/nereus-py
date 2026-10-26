@@ -57,6 +57,14 @@ def test_transit_phase_is_an_angle():
     assert not Estimate(tight, "phic_k1").multimodal
 
 
+def test_stellar_density_is_in_solar_units():
+    """rho_s is sampled as rho_star/rho_sun; labelled g/cm3, a 0.532 rho_sun
+    star (0.750 g/cm3) read as 0.532 g/cm3. Nereus tags it "rho_sun"."""
+    from astronereus._result import _unit_of
+    assert _unit_of("rho_s") == "rho_sun"
+    assert _unit_of("rho_s", {"unit": "rho_sun"}) == "rho_sun"
+
+
 def test_every_estimate_row_has_six_columns():
     rows = list(Params({"Omega_k1": OMEGA, "a_k1": A_K1, "secosw_k1": SECOSW})._rows())
     assert len(rows) == 3
