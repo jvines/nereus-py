@@ -746,6 +746,17 @@ Finite-exposure supersampling is set in a job config, from the `exposure_time` f
 `synth.py`). Gravity-darkened transits are also a job-config option; see
 [obliquity.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/obliquity.md).
 
+The orbital phase is the mean anomaly `Mo_k1` unless you pick another anchor. For a
+transiting planet pass `time_anchor="phic"`. The sampler then takes the transit phase
+`phic_k1 = 2 pi (Tc - t_ref_c) / P` (rad, uniform on `[-pi, pi]` by default), which the
+transit pins whatever e and omega are, and reports the mid-transit time as the derived
+`Tc_k1` (BJD), computed from each draw's own period. `t_ref_c` is the median
+photometric time, so `Tc_k1` is the transit nearest the middle of the data. A
+`Tc_k1` prior over the whole baseline (`time_anchor="Tc"`) instead holds one copy of
+the orbit per period, which the sampler does not mix between; with the period longer
+than the baseline it cuts off part of the phase. In a job config the same choice is
+`model.parametrization.time = "phic"`.
+
 ### RV and transit together
 
 In this release, run this mode through a job config.
@@ -1349,6 +1360,7 @@ from your data dict.
 | `K_k1` | RV semi-amplitude (m/s) | modified Jeffreys, ceiling from the RV scatter |
 | `sesinw_k1`, `secosw_k1` | sqrt(e) sin(omega), sqrt(e) cos(omega) | uniform on `[-1, 1]` |
 | `Mo_k1` | mean anomaly at the reference epoch (rad) | uniform on `[0, 2 pi]` |
+| `phic_k1` | transit phase `2 pi (Tc - t_ref_c) / P` (rad), replaces `Mo_k1` under `time_anchor="phic"` | uniform on `[-pi, pi]` |
 | `gamma_<inst>` | RV zero point (m/s) | uniform, data mean plus or minus three times the scatter |
 | `sigma_<inst>` | extra RV jitter (m/s) | normal(5, 5) truncated to `[0, 50]` |
 | `inc_k1`, `Omega_k1` | inclination, node (rad), astrometric planets | sine, uniform on `[0, 2 pi]` |

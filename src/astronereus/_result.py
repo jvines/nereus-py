@@ -121,6 +121,7 @@ _UNITS = {
     # radians in the chain: sampled on [0, 2pi] or with a sine prior
     "inc": "rad", "Omega": "rad", "w": "rad", "omega": "rad",
     "Mo": "rad", "M0": "rad", "lambda": "rad",
+    "phic": "rad",                  # transit phase 2pi (Tc - t_ref_c) / P
 }
 _M_JUP_PER_M_SUN = 1047.5655        # IAU 2015 nominal
 _M_EARTH_PER_M_SUN = 332946.0787
@@ -128,15 +129,16 @@ _M_EARTH_PER_M_SUN = 332946.0787
 # Parameters whose posterior is routinely NOT unimodal, so a percentile
 # interval across it describes the gap between two modes rather than an
 # uncertainty.
-#   _CIRC    live on [0, 2pi) and wrap: the 2- and 3-sigma bounds of a
-#            posterior near either end come back from the far side, which is
-#            how Mo_k1 reports lo3sig = 0.0035 sitting under a median of 6.00.
+#   _CIRC    live on a circle, [0, 2pi) or [-pi, pi) for phic, and wrap:
+#            the 2- and 3-sigma bounds of a posterior near either end come
+#            back from the far side, which is how Mo_k1 reports
+#            lo3sig = 0.0035 sitting under a median of 6.00.
 #   _SIGNED  flip sign together under omega -> omega+pi, the companion of the
 #            Omega -> Omega+pi degeneracy that absolute astrometry alone
 #            cannot break. Gaia-4 fitted on DR4 abscissae shows it plainly:
 #            sesinw median +0.320 with lo16 -0.299.
-_CIRC = {"Omega", "w", "omega", "Mo", "M0", "lambda",
-         "Omega_deg", "w_deg", "omega_deg", "Mo_deg", "lambda_deg"}
+_CIRC = {"Omega", "w", "omega", "Mo", "M0", "lambda", "phic",
+         "Omega_deg", "w_deg", "omega_deg", "Mo_deg", "lambda_deg", "phic_deg"}
 _SIGNED = {"sesinw", "secosw", "esinw", "ecosw"}
 
 
