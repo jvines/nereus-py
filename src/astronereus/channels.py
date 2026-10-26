@@ -283,6 +283,21 @@ class Astrometry(Channel):
     `plx` and `M_pri` are PRIORS and go in the fit's `priors` dict, not here.
     `priors["plx"]` must be informative: the abscissae constrain a0 ∝ M_sec·ϖ,
     so mass and parallax are degenerate without it.
+
+    `hgca` and `gost` take the same blocks as a run_job config, or what the
+    session's loaders return (Nereus >= 0.8.8):
+
+        hgca={"hip_id": 85653}                          # fetch the Brandt eDR3 row
+        hgca={"fits": "HGCA_vEDR3.fits", "hip_id": 85653}
+        hgca=s.load_hgca(path="HGCA_vEDR3.fits", hip=85653)
+        hgca={"values": {"t": ..., "pmra": ..., "pmdec": ..., "cov_ep": ...,
+                         "plx": ..., "plx_err": ..., "hip_id": ...}}
+
+        gost={"ra_deg": 263.09, "dec_deg": 8.91}        # fetch the scan plan
+        gost=s.load_gost(path="gost.csv")
+        gost={"values": {"t": ..., "psi": ..., "parallax_factor": ...}}
+
+    RV + HGCA is `fit_joint(RV(...), Astrometry(hgca=..., gost=...), ...)`.
     """
     source = "AS"
     iad: Any = None

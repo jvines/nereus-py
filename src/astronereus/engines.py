@@ -300,6 +300,20 @@ class TransdimPTEmcee(Engine):
     ladder_adapt_K: float | None = None
     prune_stranded: bool | None = None       # Nereus >= 0.6.0; see PTEmcee
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
+    # Nereus >= 0.7.0, and trans-dim only -- pt_emcee and pt_whitening do not
+    # take it. Tempered probability, per walker, planet and step, of proposing
+    # the (Mo, omega) -> (Mo + d, omega - d) slide along the mean-longitude
+    # ridge. At low e the data pin lambda = Mo + omega rather than either angle,
+    # and under (:Mo, :sesinw) that ridge is a helix the linear stretch can only
+    # cut chords across, so walkers freeze on their own arc.
+    #
+    # OFF BY DEFAULT IN JULIA (0.0) and that is deliberate: at the ensemble
+    # level it trades median throughput for tail risk. Over 16 seeds, nine
+    # improved 10-26 % and five collapsed. Declared here because a field the
+    # client does not declare cannot be passed at all -- turning it ON has to be
+    # reachable for anyone who wants to reproduce the measurement.
+    lambda_slide: float | None = None
+    lambda_slide_sigma: float | None = None
     inclusion_prior: float | None = None
     informed_birth_fraction: float | None = None
     moms_init_scale: float | None = None

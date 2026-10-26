@@ -103,3 +103,50 @@ def test_one_real_rv_fit(session, tmp_path):
                          output_dir=str(tmp_path))
     assert res is not None
     assert res.status != "failed", getattr(res, "error", res)
+
+
+# RV + HGCA through fit_joint. Until Nereus 0.8.8 the HGCA and GOST blocks
+# reached Julia's `Data` as raw dicts and died in its constructor, so no
+# Python fit could use either.
+_HGCA_PRIORS = {"plx": {"type": "normal", "mu": 50.0, "sigma": 0.05},
+                "M_pri": {"type": "normal", "mu": 1.0, "sigma": 0.05}}
+
+
+def _sim_rv(seed=11):
+    rng = np.random.default_rng(seed)
+    t = np.sort(rng.uniform(50000.0, 58000.0, 40))
+    rv = 50.0 * np.sin(2 * np.pi * t / 3000.0) + rng.normal(0, 3.0, t.size)
+    return astronereus.RV(data={"SIM": {"t": t, "rv": rv,
+                                        "rv_err": np.full(t.size, 3.0)}})
+
+
+def test_rv_plus_inline_hgca(session, tmp_path):
+    hgca = {"values": {
+        "t": [48348.6, 53176.5, 57388.5],                     # MJD
+        "pmra": [10.0, 10.5, 11.0], "pmdec": [-3.0, -3.1, -3.2],
+        "cov_ep": [[[0.25, 0.0], [0.0, 0.25]],
+                   [[4e-4, 0.0], [0.0, 4e-4]],
+                   [[1e-3, 0.0], [0.0, 1e-3]]],
+        "plx": 50.0, "plx_err": 0.05, "hip_id": 1}}
+    res = session.fit_joint(_sim_rv(), astronereus.Astrometry(hgca=hgca),
+                            planets=1, engine=SMOKE, priors=_HGCA_PRIORS,
+                            output_dir=str(tmp_path))
+    assert res.status != "failed", getattr(res, "error", res)
+
+
+def _hgca_catalogue():
+    base = os.environ.get("NEREUS_DATA_CACHE",
+                          os.path.join(os.path.expanduser("~"), ".nereus"))
+    return os.path.join(base, "HGCA", "HGCA_vEDR3.fits")
+
+
+@pytest.mark.skipif(not os.path.isfile(_hgca_catalogue()),
+                    reason="HGCA_vEDR3.fits not in the Nereus cache")
+def test_rv_plus_hgca_from_the_loader(session, tmp_path):
+    """The user's path: read the row with the session's loader, hand the dict
+    it returns straight to the channel."""
+    hgca = session.load_hgca(path=_hgca_catalogue(), hip=85653)
+    res = session.fit_joint(_sim_rv(), astronereus.Astrometry(hgca=hgca),
+                            planets=1, engine=SMOKE, priors=_HGCA_PRIORS,
+                            output_dir=str(tmp_path))
+    assert res.status != "failed", getattr(res, "error", res)

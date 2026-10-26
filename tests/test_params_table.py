@@ -45,6 +45,26 @@ def test_rounding_follows_the_smaller_error():
     assert "0.484" in t and "+0.082" in t and "-1.027" in t, t
 
 
+def test_transit_phase_is_an_angle():
+    """phic_k<n> (time_anchor="phic") is in radians on [-pi, pi) and wraps
+    like Mo: an interval wider than pi is two ends of one mode."""
+    from astronereus._result import _unit_of
+    assert _unit_of("phic_k1") == "rad"
+    assert _unit_of("Tc_k1") == "BJD"            # the derived mid-transit time
+    wrapped = {"median": -0.2, "lo16": -3.0, "hi84": 2.9}
+    tight = {"median": 0.512, "lo16": 0.509, "hi84": 0.515}
+    assert Estimate(wrapped, "phic_k1").multimodal
+    assert not Estimate(tight, "phic_k1").multimodal
+
+
+def test_stellar_density_is_in_solar_units():
+    """rho_s is sampled as rho_star/rho_sun; labelled g/cm3, a 0.532 rho_sun
+    star (0.750 g/cm3) read as 0.532 g/cm3. Nereus tags it "rho_sun"."""
+    from astronereus._result import _unit_of
+    assert _unit_of("rho_s") == "rho_sun"
+    assert _unit_of("rho_s", {"unit": "rho_sun"}) == "rho_sun"
+
+
 def test_every_estimate_row_has_six_columns():
     rows = list(Params({"Omega_k1": OMEGA, "a_k1": A_K1, "secosw_k1": SECOSW})._rows())
     assert len(rows) == 3

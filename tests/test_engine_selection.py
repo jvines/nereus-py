@@ -71,3 +71,17 @@ def test_node_flip_is_reachable(cls):
     at 0.1; `0` is the way back, and it is reachable from here only because
     all three PT ensembles declare the field."""
     assert cls(node_flip=0).options() == {"node_flip": 0}
+
+
+def test_lambda_slide_is_reachable_and_transdim_only():
+    """Nereus v0.7.0's mean-longitude slide is OFF by default (0.0), so the only
+    way anyone turns it on is by passing it -- and a field the client does not
+    declare cannot be passed at all.
+
+    It is deliberately NOT on PTEmcee or PTWhitening: only
+    sample_transdim_pt_emcee takes it in Julia, and declaring it elsewhere would
+    produce an ArgumentError from run_engine rather than a useful fit."""
+    assert engines.TransdimPTEmcee(lambda_slide=0.05).options() == {"lambda_slide": 0.05}
+    assert engines.TransdimPTEmcee(lambda_slide_sigma=0.6).options() == {"lambda_slide_sigma": 0.6}
+    for cls in (engines.PTEmcee, engines.PTWhitening):
+        assert not hasattr(cls(), "lambda_slide")
