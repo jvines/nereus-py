@@ -580,8 +580,11 @@ def transit_flux(t, P, Tc, rp, a_Rs, b, u=(0.40, 0.25), n=600):
     return 1 - np.where(np.cos(ph) > 0, lost, 0)
 
 
-def make_lc(P=3.5, Tc=59000.5, rp=0.1, a_Rs=8.0, b=0.3, n_tr=3, n=150, sig=4e-4, seed=1):
-    """{instrument: {t, flux, flux_err}} with n_tr transits."""
+def make_lc(P=3.5, Tc=59000.5, rp=0.1, a_Rs=9.70, b=0.3, n_tr=3, n=150, sig=4e-4, seed=1):
+    """{instrument: {t, flux, flux_err}} with n_tr transits.
+
+    a_Rs = 9.70 is a 3.5 d orbit around the Sun: the fits below give M_s = R_s = 1,
+    which sets a/R* to that value, so the light curve must have it too."""
     rng = np.random.default_rng(seed)
     t = np.sort(np.concatenate([rng.uniform(Tc + i * P - 0.3, Tc + i * P + 0.3, n)
                                 for i in range(n_tr)]))
@@ -746,6 +749,17 @@ Finite-exposure supersampling is set in a job config, from the `exposure_time` f
 `synth.py`). Gravity-darkened transits are also a job-config option; see
 [obliquity.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/obliquity.md).
 
+The orbital phase is the mean anomaly `Mo_k1` unless you pick another anchor. For a
+transiting planet pass `time_anchor="phic"`. The sampler then takes the transit phase
+`phic_k1 = 2 pi (Tc - t_ref_c) / P` (rad, uniform on `[-pi, pi]` by default), which the
+transit pins whatever e and omega are, and reports the mid-transit time as the derived
+`Tc_k1` (BJD), computed from each draw's own period. `t_ref_c` is the median
+photometric time, so `Tc_k1` is the transit nearest the middle of the data. A
+`Tc_k1` prior over the whole baseline (`time_anchor="Tc"`) instead holds one copy of
+the orbit per period, which the sampler does not mix between; with the period longer
+than the baseline it cuts off part of the phase. In a job config the same choice is
+`model.parametrization.time = "phic"`.
+
 ### RV and transit together
 
 In this release, run this mode through a job config.
@@ -800,7 +814,7 @@ import numpy as np
 import astronereus
 from synth import make_lc, phot_blocks, rv_values, transit_flux, show
 
-P, Tc, rp, a_Rs, b, vsini = 3.5, 59000.5, 0.1, 8.0, 0.3, 10_000.0      # vsini in m/s
+P, Tc, rp, a_Rs, b, vsini = 3.5, 59000.5, 0.1, 9.70, 0.3, 10_000.0     # vsini in m/s
 lam = np.deg2rad(30.0)                                                  # true obliquity
 rng = np.random.default_rng(4)
 t = np.sort(np.concatenate([rng.uniform(Tc - 0.2, Tc + 0.2, 40),        # in transit
@@ -1349,6 +1363,7 @@ from your data dict.
 | `K_k1` | RV semi-amplitude (m/s) | modified Jeffreys, ceiling from the RV scatter |
 | `sesinw_k1`, `secosw_k1` | sqrt(e) sin(omega), sqrt(e) cos(omega) | uniform on `[-1, 1]` |
 | `Mo_k1` | mean anomaly at the reference epoch (rad) | uniform on `[0, 2 pi]` |
+| `phic_k1` | transit phase `2 pi (Tc - t_ref_c) / P` (rad), replaces `Mo_k1` under `time_anchor="phic"` | uniform on `[-pi, pi]` |
 | `gamma_<inst>` | RV zero point (m/s) | uniform, data mean plus or minus three times the scatter |
 | `sigma_<inst>` | extra RV jitter (m/s) | normal(5, 5) truncated to `[0, 50]` |
 | `inc_k1`, `Omega_k1` | inclination, node (rad), astrometric planets | sine, uniform on `[0, 2 pi]` |
