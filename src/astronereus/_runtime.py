@@ -406,7 +406,7 @@ def default_bundle(version: str = JULIA_VERSION) -> tuple[str, str]:
     thirty people each pulling half a gigabyte over conference wifi does not
     work, so the bundles go on a USB stick and everyone sets one variable:
 
-        export NEREUS_BUNDLE_URL=/Volumes/NEREUS/nereus-runtime-1.11.9-macos-arm64.tar.zst
+        export NEREUS_BUNDLE_URL=/Volumes/NEREUS/nereus-runtime-1.13.3-macos-arm64.tar.zst
 
     The checksum is skipped for local overrides: you handed us the file, so
     there is nothing to verify it against that you did not also supply.
@@ -713,7 +713,7 @@ def julia_env(version: str) -> tuple[Path, dict[str, str]]:
     # The load path must name the BUNDLED PROJECT, not "@". The depot carries a
     # precompiled Nereus, but a depot is a cache — it does not tell Julia which
     # environment to resolve `using Nereus` against. With "@" that is the user's
-    # default v1.11 environment, which has never heard of Nereus, so the bundle
+    # default v1.x environment, which has never heard of Nereus, so the bundle
     # unpacks perfectly and then fails with "Package Nereus not found in current
     # path". The daemon hid this because it passes --project explicitly.
     proj = d / "depot" / "dev" / "Nereus"

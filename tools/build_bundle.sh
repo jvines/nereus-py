@@ -31,7 +31,7 @@ set -euo pipefail
 cleanup() { [ -n "${KEEP_WORK:-}" ] || rm -rf "${WORK:-}"; }
 trap cleanup EXIT
 
-JULIA_VER="${JULIA_VER:-1.11.9}"
+JULIA_VER="${JULIA_VER:-1.13.3}"
 NEREUS_JL="${NEREUS_JL:-$(cd "$(dirname "$0")/../../Nereus.jl" && pwd)}"
 OUT_DIR="${OUT_DIR:-$PWD/dist}"
 WORK="${WORK:-$(mktemp -d)}"

@@ -50,7 +50,7 @@ The first call that needs Julia fetches the runtime (about 480 MB on
 
 ```
 astronereus: no Julia runtime yet -- fetching it once now.
-astronereus: fetching runtime (macos-arm64, julia 1.11.9) ...
+astronereus: fetching runtime (macos-arm64, julia 1.13.3) ...
 astronereus: unpacking ...
 astronereus: warming the runtime (one-time, a few minutes) ...
 astronereus: ready (207s)
@@ -114,7 +114,7 @@ python -c "import astronereus; astronereus.install(force=True)"
 For a classroom, fetch the bundle once and point everyone at the local copy:
 
 ```sh
-export NEREUS_BUNDLE_URL=~/nereus-runtime-1.11.9-macos-arm64.tar.zst   # path or file:// URL
+export NEREUS_BUNDLE_URL=~/nereus-runtime-1.13.3-macos-arm64.tar.zst   # path or file:// URL
 ```
 
 `NEREUS_HOME` moves the runtime cache out of the default platform cache directory
@@ -140,7 +140,7 @@ with astronereus.session() as s:
 ```
 
 ```
-{'julia': '1.11.9', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.8.8', 'pong': True}
+{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.8.8', 'pong': True}
 ```
 
 Everything the module-level functions do is also a method on the session
