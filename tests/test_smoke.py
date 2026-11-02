@@ -36,7 +36,7 @@ def session():
     if proj := os.environ.get("NEREUS_PROJECT"):
         # Mandatory under NEREUS_JULIA: julia_env sets JULIA_LOAD_PATH="@:@stdlib"
         # and pops JULIA_PROJECT, so `using Nereus` would resolve against the
-        # user's default v1.11 environment. daemon.jl catches that with a bare
+        # user's default v1.x environment. daemon.jl catches that with a bare
         # @warn, so the daemon comes up healthy and every fit then dies.
         kw["project"] = proj
     with astronereus.session(**kw) as s:
