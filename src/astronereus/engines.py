@@ -35,9 +35,36 @@ class Engine:
     """Base. `name` is the Julia sampler; `options()` its keyword arguments."""
 
     name: str = ""
+    # The `init_strategy` values the Julia sampler implements, for the engines
+    # that have the field, and the spellings this client translates. A value
+    # outside them used to cross the wire and fall through to the prior draw:
+    # `PTEmcee(init_strategy="map")` ran exactly the "prior" fit, silently.
+    _init_strategies: tuple[str, ...] = ()
+    _init_aliases: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        self._init_strategy()
+
+    def _init_strategy(self) -> str | None:
+        v = getattr(self, "init_strategy", None)
+        if v is None:
+            return None
+        aliases = dict(self._init_aliases)
+        if v in aliases:
+            return aliases[v]
+        if v in self._init_strategies:
+            return v
+        valid = ", ".join(repr(x) for x in self._init_strategies)
+        also = "".join(f" ({a!r} is {b!r})" for a, b in self._init_aliases)
+        raise ValueError(
+            f"{type(self).__name__}: init_strategy={v!r} is not implemented by "
+            f"{self.name}; use one of {valid}{also}")
 
     def options(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        d = {k: v for k, v in asdict(self).items() if v is not None}
+        if "init_strategy" in d:
+            d["init_strategy"] = self._init_strategy()
+        return d
 
     def to_wire(self) -> dict[str, Any]:
         return {"engine": self.name, "options": self.options()}
@@ -53,6 +80,7 @@ class PT(Engine):
     and 15 is 32768. Cost roughly doubles per round.
     """
     name = "pt"
+    _init_strategies = ("prior", "pathfinder")
     n_rounds: int | None = None
     n_chains: int | None = None
     seed: int | None = None
@@ -86,6 +114,7 @@ class PTHMC(Engine):
 class PTWhitening(Engine):
     """Normalising-flow-coupled PT; better swap acceptance on multimodal posteriors."""
     name = "pt_whitening"
+    _init_strategies = ("prior",)
     n_temps: int | None = None
     n_walkers: int | None = None
     n_steps: int | None = None
@@ -97,7 +126,9 @@ class PTWhitening(Engine):
     whiten_window: int | None = None
     whiten_refresh: int | None = None
     betas: Sequence[float] | None = None
-    init_strategy: Literal["pathfinder", "prior"] | None = None
+    # pt_whitening draws every walker from the prior; it took "pathfinder" and
+    # ignored it. "prior" is the only value.
+    init_strategy: Literal["prior"] | None = None
     seed: int | None = None
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
     show_progress: bool | None = None
@@ -109,15 +140,24 @@ class PTEmcee(Engine):
 
     NOTE `init_strategy="prior"` matters for weak signals — prior-distributed
     walkers across chains and temperatures is what recovers low-K planets.
+
+    `init_strategy` is "prior" (Julia's default), "pathfinder" or
+    "map_scatter" (the MAP plus a small scatter); "map" is sent as
+    "map_scatter". Anything else is a ValueError.
     """
     name = "pt_emcee"
+    _init_strategies = ("prior", "pathfinder", "map_scatter")
+    # This field was typed Literal["prior", "ball", "map"]: neither of the last
+    # two was ever implemented, and both ran the prior draw. "map" meant the MAP
+    # start, which Julia calls "map_scatter"; "ball" named nothing.
+    _init_aliases = (("map", "map_scatter"),)
     n_temps: int | None = None
     n_walkers: int | None = None
     n_steps: int | None = None
     n_burnin: int | None = None
     min_steps: int | None = None
     stretch_a: float | None = None
-    init_strategy: Literal["prior", "ball", "map"] | None = None
+    init_strategy: Literal["prior", "pathfinder", "map_scatter", "map"] | None = None
     thin: int | None = None
     seed: int | None = None
     pf_n_runs: int | None = None
