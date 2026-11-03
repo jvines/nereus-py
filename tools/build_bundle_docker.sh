@@ -10,7 +10,8 @@
 # Usage:
 #   tools/build_bundle_docker.sh [platform]     # default: linux/arm64
 #
-# Env: OUT_DIR (default ~/nereus-bundles), NEREUS_JL, NEREUS_PY, DOCKER.
+# Env: OUT_DIR (default ~/nereus-bundles), NEREUS_JL, NEREUS_PY, DOCKER, and
+# JULIA_VER (default: build_bundle.sh's own), passed through to the container.
 set -euo pipefail
 
 PLATFORM="${1:-linux/arm64}"
@@ -29,6 +30,7 @@ echo "platform : $PLATFORM"
 echo "Nereus.jl: $NEREUS_JL ($(git -C "$NEREUS_JL" describe --always --dirty))"
 echo "nereus-py: $NEREUS_PY"
 echo "out      : $OUT_DIR"
+echo "julia    : ${JULIA_VER:-build_bundle.sh default}"
 
 # WORK lives on the container's own filesystem. The precompile writes ~4 GB and
 # doing that through a bind mount to macOS is dramatically slower; only the
@@ -38,7 +40,7 @@ exec "$DOCKER" run --rm --platform "$PLATFORM" \
   -v "$NEREUS_PY":/src/nereus-py:ro \
   -v "$OUT_DIR":/out \
   -e OUT_DIR=/out -e NEREUS_JL=/src/Nereus.jl -e NEREUS_PY=/src/nereus-py \
-  -e WORK=/work \
+  -e WORK=/work ${JULIA_VER:+-e JULIA_VER="$JULIA_VER"} \
   debian:bookworm-slim bash -c '
     set -euo pipefail
     apt-get update -qq
