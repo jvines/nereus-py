@@ -150,3 +150,33 @@ def test_rv_plus_hgca_from_the_loader(session, tmp_path):
                             planets=1, engine=SMOKE, priors=_HGCA_PRIORS,
                             output_dir=str(tmp_path))
     assert res.status != "failed", getattr(res, "error", res)
+
+
+def _sim_rv_transit(seed=3):
+    """A hot-Jupiter-like system: P = 2.5 d, K = 80 m/s, 1% deep transits."""
+    rng = np.random.default_rng(seed)
+    P, T0 = 2.5, 59000.3
+    t = np.sort(rng.uniform(59000.0, 59030.0, 40))
+    rv = 80.0 * np.sin(2 * np.pi * (t - T0) / P) + rng.normal(0, 4.0, t.size)
+    tp = np.arange(59000.0, 59005.0, 2.0 / 1440.0)
+    ph = ((tp - T0 + 0.5 * P) % P) - 0.5 * P
+    flux = 1.0 - 0.01 * (np.abs(ph) < 0.04) + rng.normal(0, 3e-4, tp.size)
+    return (astronereus.RV(data={"SIM": {"t": t, "rv": rv,
+                                         "rv_err": np.full(t.size, 4.0)}}),
+            astronereus.Transit(data={"TESS": {
+                "t": tp, "flux": flux, "flux_err": np.full(tp.size, 3e-4)}}))
+
+
+@pytest.mark.parametrize("planets", [1, [1]])
+def test_rv_plus_transit_fit_joint(session, tmp_path, planets):
+    """Regression: an int `planets` built planets with no parameters and the
+    engine refused with "planet must declare a mass parameter"."""
+    rv, tr = _sim_rv_transit()
+    eng = engines.PTEmcee(n_temps=4, n_walkers=24, n_steps=60, n_burnin=30,
+                          seed=1)
+    res = session.fit_joint(rv, tr, planets=planets, M_s=1.0, R_s=1.0,
+                            engine=eng, output_dir=str(tmp_path),
+                            priors={"P_k1": {"type": "uniform", "lo": 2.4, "hi": 2.6}})
+    assert res.status != "failed", res.raw.get("error")
+    names = set(res.params)
+    assert any(n.startswith("K_k1") for n in names) and any(n.startswith("rr_k1") for n in names), names

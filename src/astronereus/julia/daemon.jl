@@ -226,6 +226,31 @@ function _fit_dispatch(op::String, payload)
                           n_null = Int(get(ob, "n_null", 300)),
                           output_dir = outdir)
     elseif op == "fit_joint"
+        # A bare planet COUNT becomes `_planet_spec(n)`, planets with no
+        # parameters, and build_target refuses ("planet must declare a mass
+        # parameter"). `_target_from` supplies an astrometric block itself
+        # when astrometry is present; with RV and no astrometry (RV +
+        # transit) nothing did. Same block `fit_rv` uses, taken from the RV
+        # data; the photometric parameters come from the default priors.
+        if !(planets isa NamedTuple)
+            rvi = findfirst(c -> String(get(c, "source", "")) == "RV", chs)
+            has_as = any(c -> String(get(c, "source", "")) == "AS", chs)
+            if rvi !== nothing && !has_as
+                dv = collect(values(get(chs[rvi], "data", Dict())))
+                if !isempty(dv)
+                    allt  = reduce(vcat, [collect(x.t)  for x in dv])
+                    allrv = reduce(vcat, [collect(x.rv) for x in dv])
+                    # Only P and K: they pick the K-driven mass
+                    # parametrization. Eccentricity, the time anchor
+                    # (`time_anchor=`) and the photometric parameters take
+                    # the layout's own defaults, which is what a job config
+                    # that names no planet block gets.
+                    blk = Base.invokelatest(mod.default_rv_planet, allt, allrv)
+                    planets = Base.invokelatest(mod._planet_spec, planets;
+                                  block = (P = blk.P, K = blk.K))
+                end
+            end
+        end
         Base.invokelatest(f, chs...; planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_astrometry"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
