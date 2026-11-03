@@ -546,7 +546,8 @@ Two routes exist:
 | radial velocities | `fit_rv(rv, ...)` | `{instrument: {t, rv, rv_err}}` |
 | transits | `fit_transit(lc, ...)` | `{instrument: {t, flux, flux_err}}` |
 | Doppler tomography | `fit_tomography(nights, ...)` | one `Night` per transit |
-| RV + transit, Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
+| RV + transit | `fit_joint(RV(...), Transit(...), ...)`, or `session.run_job(cfg)` | channels, or a job config |
+| Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
 | astrometry, and anything joined to it | see [Astrometry](#astrometry) | |
 
 A `run_job` config is documented in
@@ -636,7 +637,8 @@ def make_sb2(P=12.3, T0=58950.0, K1=30e3, K2=45e3, gamma=5e3, sig=300.0, n=40, s
 ```
 
 A `run_job` result keeps its fitted table under `r.raw["fitted"]["parameters"]`
-(value, `err_hi`, `err_lo`, unit); `show` prints it. The same tables are written to
+(value, `err_hi`, `err_lo`, unit); `r.params` and `r.table()` read it from there,
+and `show` prints it in raw form. The same tables are written to
 `<output_dir>/tables/` as CSV, JSON, ECSV and LaTeX.
 
 ### Radial velocities
@@ -762,7 +764,27 @@ than the baseline it cuts off part of the phase. In a job config the same choice
 
 ### RV and transit together
 
-In this release, run this mode through a job config.
+`fit_joint` takes an `RV` and a `Transit` channel; `planets` is an int or a list, as
+for `fit_rv`. The planet block is the RV one (`P`, `K`); the eccentricity vector, the
+time anchor and the transit parameters (`rr_k1`, `b_k1`, limb darkening) come from the
+defaults and can be bracketed in `priors`. Stellar mass and radius set the scale of
+the transit: pass `M_s` and `R_s`.
+
+```python
+from astronereus import RV, Transit
+from synth import make_lc, make_rv
+
+with astronereus.session() as s:
+    r = s.fit_joint(RV(data=make_rv()), Transit(data=make_lc(n_tr=3)), planets=1,
+                    M_s=1.0, R_s=1.0, time_anchor="phic",
+                    priors={"P_k1": {"type": "uniform", "lo": 3.4, "hi": 3.6},
+                            "rr_k1": {"type": "uniform", "lo": 0.02, "hi": 0.3}})
+print(r.params)
+```
+
+This route has no `use_rho_s` parametrization (a stellar-density prior on the fitted
+`rho_s`): the transit scale comes from `M_s` and `R_s`. For that, for exposure-time
+supersampling and for every other `model` option, use the job config below.
 
 Both datasets share one orbit: `P_k1`, `Mo_k1` and the eccentricity vector, with
 `K_k1` for the RV amplitude and `rr_k1`, `b_k1` for the transit. Each instrument keeps
