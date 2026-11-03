@@ -698,7 +698,12 @@ class JobResult:
     @property
     def params(self) -> "Params":
         """Per-parameter posterior summary, as a printable table."""
-        return Params(self.raw.get("params", {}) or {}, "fitted parameters")
+        # `fit_*` summaries carry the parameters under "params"; `run_job`
+        # returns them under "fitted" (the science contract, wrapped as
+        # {"conditioning": ..., "parameters": {...}}). Reading only "params"
+        # made `run_job(cfg).params` an empty table.
+        return Params(self.raw.get("params") or self.raw.get("fitted") or {},
+                      "fitted parameters")
 
     @property
     def derived(self) -> "Params":
