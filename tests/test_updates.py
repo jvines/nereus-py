@@ -85,18 +85,17 @@ def test_github_prerelease_ignored(env):
     assert st.nereus_latest is None and not w
 
 
-def test_nereus_newer_with_current_client(env):
+def test_nereus_ahead_of_current_client_is_data_not_a_warning(env):
     env(pypi("0.4.38"), gh("v0.9.0"))
     st, w = run()
-    assert st.nereus_outdated and len(w) == 1
-    msg = str(w[0].message)
-    assert "0.9.0" in msg and "0.8.10" in msg and "pinned by the client" in msg
+    assert st.nereus_outdated and st.nereus_latest == "0.9.0" and not w
 
 
 def test_both_outdated_two_warnings(env):
     env(pypi("0.5.0"), gh("v0.9.0"))
     st, w = run()
     assert len(w) == 2
+    assert "0.9.0" in str(w[1].message) and "0.8.10" in str(w[1].message)
 
 
 def test_dev_runtime_not_compared(env, monkeypatch):
@@ -123,7 +122,7 @@ def test_failures_are_silent(env, bad):
 def test_one_source_down_other_still_works(env):
     env(OSError("offline"), gh("v0.9.0"))
     st, w = run()
-    assert st.client_latest is None and st.nereus_latest == "0.9.0" and len(w) == 1
+    assert st.client_latest is None and st.nereus_latest == "0.9.0" and not w
 
 
 def test_cache_hit_skips_network(env):
@@ -179,10 +178,10 @@ def test_unwritable_cache_is_silent(env, monkeypatch):
 
 
 @pytest.mark.parametrize("var, val", [("ASTRONEREUS_NO_UPDATE_CHECK", "1"), ("CI", "true")])
-def test_background_check_opt_out(env, monkeypatch, var, val):
+def test_begin_check_opt_out(env, monkeypatch, var, val):
     calls = env(pypi("0.5.0"), gh("v0.9.0"))
     monkeypatch.setenv(var, val)
-    _updates.start_background_check()
+    assert _updates.begin_check() is None
     assert calls == [] and _updates._started is False
 
 
@@ -197,18 +196,53 @@ def test_explicit_call_ignores_opt_out(env, monkeypatch):
     assert len(run()[1]) == 1
 
 
-def test_background_check_warns_once_per_process(env, monkeypatch):
-    calls = env(pypi("0.5.0"), gh("v0.8.10"))
-    monkeypatch.setattr(_updates, "_thread", None)
+def finish_recording(p):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        _updates.start_background_check()
-        _updates._thread.join(10)
-        first = _updates._thread
-        _updates.start_background_check()      # second Session.start in the process
-        assert _updates._thread is first
-    assert len([x for x in w if issubclass(x.category, UpdateAvailableWarning)]) == 1
-    assert len(calls) == 2
+        p.finish()
+    return [x for x in w if issubclass(x.category, UpdateAvailableWarning)]
+
+
+def test_fetch_on_thread_warns_on_calling_thread_once(env):
+    import threading
+    calls = env(pypi("0.5.0"), gh("v0.8.10"))
+    p = _updates.begin_check()
+    assert p.thread is not None
+    w = finish_recording(p)
+    assert len(w) == 1 and len(calls) == 2
+    assert _updates.begin_check() is None          # second Session.start: nothing
+    assert threading.current_thread() is threading.main_thread()
+
+
+def test_cache_hit_means_no_thread_and_sync_warning(env):
+    calls = env(pypi("0.5.0"), gh("v0.8.10"))
+    run()
+    _updates._started = False
+    n = len(calls)
+    p = _updates.begin_check()
+    assert p.thread is None and len(calls) == n
+    assert len(finish_recording(p)) == 1
+
+
+def test_slow_fetch_is_abandoned_after_timeout(env, monkeypatch):
+    import threading, time as t
+    gate = threading.Event()
+    def slow(url):
+        gate.wait(10)
+        return pypi("0.5.0")
+    monkeypatch.setattr(_updates, "_http_json", slow)
+    monkeypatch.setattr(_updates, "TIMEOUT", 0.2)
+    p = _updates.begin_check()
+    t0 = t.time()
+    assert finish_recording(p) == []
+    gate.set()
+    assert t.time() - t0 < 2
+
+
+def test_warning_points_at_the_callers_file(env):
+    env(pypi("0.5.0"), gh("v0.8.10"))
+    st, w = run()
+    assert w[0].filename == __file__
 
 
 def test_import_does_no_network(monkeypatch):

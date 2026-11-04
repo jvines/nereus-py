@@ -93,9 +93,11 @@ class Session:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> "Session":
+        pending = _updates.begin_check()    # fetch overlaps the ~20 s daemon start
         self._daemon.start()
         self._check_api()
-        _updates.start_background_check()
+        if pending is not None:
+            pending.finish()                # warns here, on the caller's thread
         return self
 
     def _check_api(self) -> None:

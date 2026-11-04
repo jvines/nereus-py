@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import threading
 import time
 import urllib.request
@@ -178,25 +179,26 @@ def messages(st: UpdateStatus) -> list[str]:
             f"latest release. Upgrade with: pip install -U astronereus  "
             f"(a new client may also fetch a newer Nereus runtime on its next start). "
             f"Silence with ASTRONEREUS_NO_UPDATE_CHECK=1.")
-    if st.nereus_outdated:
-        if st.client_outdated:
-            out.append(
-                f"The latest Nereus is {st.nereus_latest}; the installed astronereus "
-                f"runs against Nereus {st.nereus_runtime}.")
-        else:
-            out.append(
-                f"Nereus {st.nereus_latest} is released, but astronereus "
-                f"{st.client_installed} (the latest client) runs against Nereus "
-                f"{st.nereus_runtime}: the runtime version is pinned by the client, so "
-                f"there is nothing to update yet. A client release that ships Nereus "
-                f"{st.nereus_latest} has not been published; `pip install -U "
-                f"astronereus` will pick it up when it is.")
+    if st.nereus_outdated and st.client_outdated:
+        # Only actionable alongside a client upgrade: the runtime is pinned by
+        # the client. A Nereus ahead of the newest client stays in UpdateStatus.
+        out.append(
+            f"The latest Nereus is {st.nereus_latest}; the installed astronereus "
+            f"runs against Nereus {st.nereus_runtime}.")
     return out
 
 
+_PKG = os.path.dirname(os.path.abspath(__file__))
+
+
 def _emit(st: UpdateStatus) -> None:
+    # stacklevel that lands on the first frame outside this package, i.e. the
+    # user's own call (`session().start()`, `run_job`, `check_updates`).
+    f, n = sys._getframe(0), 1
+    while f is not None and os.path.abspath(f.f_code.co_filename).startswith(_PKG):
+        f, n = f.f_back, n + 1
     for m in messages(st):
-        warnings.warn(m, UpdateAvailableWarning, stacklevel=2)
+        warnings.warn(m, UpdateAvailableWarning, stacklevel=n)
 
 
 def check_updates(*, warn: bool = True, refresh: bool = True) -> UpdateStatus:
@@ -220,24 +222,55 @@ def check_updates(*, warn: bool = True, refresh: bool = True) -> UpdateStatus:
 
 _started = False
 _lock = threading.Lock()
-_thread: threading.Thread | None = None
 
 
-def start_background_check() -> None:
-    """Once per process: look for updates without making the caller wait."""
-    global _started, _thread
-    if disabled():
-        return
-    with _lock:
-        if _started:
-            return
-        _started = True
+class _Pending:
+    """An update check under way. `finish` collects it on the caller's thread."""
 
-    def work():
+    def __init__(self, status: UpdateStatus | None = None):
+        self.status = status
+        self.thread: threading.Thread | None = None
+
+    def finish(self) -> None:
+        """Warn from the calling thread; give a slow fetch at most TIMEOUT s."""
         try:
-            _emit(_status(True, _http_json))
+            if self.thread is not None:
+                self.thread.join(TIMEOUT)
+            if self.status is not None:
+                _emit(self.status)
         except Exception:
             pass
 
-    _thread = threading.Thread(target=work, name="astronereus-update-check", daemon=True)
-    _thread.start()
+
+def begin_check() -> _Pending | None:
+    """Once per process, start looking for updates; None when off or already done.
+
+    A fresh cache answers on the spot with no thread. Otherwise the fetch runs
+    on a daemon thread and `_Pending.finish()` -- called from `Session.start()`
+    once the daemon is up -- joins it and emits the warnings on the main thread,
+    where Jupyter attributes them to the running cell.
+    """
+    global _started
+    if disabled():
+        return None
+    with _lock:
+        if _started:
+            return None
+        _started = True
+    try:
+        if _read_cache(time.time()) is not None:
+            return _Pending(_status(True, _http_json))
+        pending = _Pending()
+
+        def work():
+            try:
+                pending.status = _status(True, _http_json)
+            except Exception:
+                pass
+
+        pending.thread = threading.Thread(target=work, name="astronereus-update-check",
+                                          daemon=True)
+        pending.thread.start()
+        return pending
+    except Exception:
+        return None
