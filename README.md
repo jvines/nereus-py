@@ -121,6 +121,29 @@ export NEREUS_BUNDLE_URL=~/nereus-runtime-1.13.3-macos-arm64.tar.zst   # path or
 (`~/Library/Caches/nereus` on macOS, `$XDG_CACHE_HOME/nereus` or `~/.cache/nereus`
 on Linux).
 
+### Update warnings
+
+The first time a session starts, astronereus looks up the latest `astronereus` on PyPI
+and the latest [Nereus.jl release](https://github.com/jvines/Nereus.jl/releases), and
+emits an `astronereus.UpdateAvailableWarning` (a `UserWarning`) if either is ahead of
+what you have. The client is compared with PyPI. The Nereus compared is the one your
+client runs against: a client pins its runtime, so a Nereus release that no
+`astronereus` ships yet is reported as such rather than as something you can update.
+If you set `NEREUS_JULIA` or `NEREUS_BUNDLE_URL` you are running your own Nereus, and
+only the client is compared.
+
+The check runs once per process on a background thread with a 2 s timeout, fails
+silently, and is cached for 24 hours in the runtime cache directory. It never runs at
+import. To turn it off, set `ASTRONEREUS_NO_UPDATE_CHECK=1` (it is also off when `CI`
+is set) or filter the class:
+
+```python
+warnings.simplefilter("ignore", astronereus.UpdateAvailableWarning)
+```
+
+`astronereus.check_updates()` runs it on demand, ignoring the opt-out and the cache,
+and returns an `UpdateStatus` with the installed and latest versions.
+
 ## Sessions
 
 Every call goes to a Julia daemon. You can leave its lifetime implicit or hold it
