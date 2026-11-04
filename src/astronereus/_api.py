@@ -34,6 +34,7 @@ from ._daemon import JuliaDaemon
 from ._result import JobResult, JobFailed
 from ._runtime import RUNTIME_VERSION, _ver
 from . import _features as _F
+from . import _updates
 
 _shared: "Session | None" = None
 _shared_lock = threading.Lock()
@@ -92,8 +93,11 @@ class Session:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> "Session":
+        pending = _updates.begin_check()    # fetch overlaps the ~20 s daemon start
         self._daemon.start()
         self._check_api()
+        if pending is not None:
+            pending.finish()                # warns here, on the caller's thread
         return self
 
     def _check_api(self) -> None:

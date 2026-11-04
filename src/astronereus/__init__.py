@@ -19,6 +19,7 @@ from ._runtime import (JULIA_VERSION, RUNTIME_VERSION, CPU_TARGETS,
                        is_installed, installed_version, is_stale,
                        platform_tag, runtime_dir, cache_root,
                        julia_env)
+from ._updates import check_updates, UpdateAvailableWarning, UpdateStatus
 from ._daemon import JuliaDaemon, DaemonError, FitInterrupted
 from ._api import (Session, session, run_job, ping, dataset, list_datasets,
                    RuntimeVersionError, PY_API_VERSION)
@@ -40,6 +41,7 @@ __all__ = ["JULIA_VERSION", "RUNTIME_VERSION", "CPU_TARGETS", "BundleError", "Da
            "daemon", "session", "run_job", "ping",
            "JobResult", "JobFailed", "Figures", "replot",
            "RuntimeVersionError", "PY_API_VERSION",
+           "check_updates", "UpdateAvailableWarning", "UpdateStatus",
            "fit_rv", "fit_transit", "fit_astrometry", "fit_rm",
            "fit_tomography", "fit_ttv", "fit_binary", "fit_joint",
            "RV", "Transit", "Astrometry", "RM", "Night", "TTV", "SB2",
