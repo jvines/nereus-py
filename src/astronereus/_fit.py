@@ -261,6 +261,7 @@ def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
 # --- several techniques together ---------------------------------------------
 
 def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
+              use_rho_s: bool = False,
               engine: _eng.Engine | None = None, stopping: Stopping | None = None,
               output_dir=None, priors: dict | None = None,
               session=None, **model_kw) -> Any:
@@ -273,6 +274,14 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
 
     One operation for "fit these together", rather than a named function per
     combination — the Julia model composes source flags for exactly this reason.
+
+    `use_rho_s=True` samples the stellar density (`rho_s`, solar units) and
+    derives the transit's a/R★ from it and the period, as a run_job config's
+    `parametrization.use_rho_s` does. It needs a `Transit` channel and raises
+    without one. Put the prior on it in `priors`, e.g.
+    `priors={"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11,
+    "lo": 0.1, "hi": 10.0}}`, with `M_s` / `R_s` for the derived table. This
+    keyword is the switch: `Transit(use_rho_s=...)` is not read.
     """
     if not channels:
         raise ValueError("fit_joint needs at least one channel; for a single "
@@ -281,8 +290,16 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
         raise ValueError(
             f"fit_joint with one channel — use the dedicated entry point for "
             f"{type(channels[0]).__name__} instead, it has a clearer signature")
+    if use_rho_s and not any(isinstance(c, Transit) for c in channels):
+        raise ValueError(
+            "fit_joint: use_rho_s samples the stellar density through the "
+            "transit a/R★, so it needs a Transit channel among the channels")
+    # Sent only when asked for: a runtime that predates the keyword has no
+    # `use_rho_s` on Julia's fit_joint, and `False` is its default anyway.
+    extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                extra=extra, **model_kw)
 
 
 def _sess(session):
