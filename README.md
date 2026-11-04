@@ -13,6 +13,12 @@ starts it as a separate process (a warm daemon) and sends it JSON jobs. Nothing 
 compiled at install time, and the daemon stays up between calls, so Julia's start-up
 cost is paid once per session, not once per fit.
 
+**Tutorial.** [`examples/tutorial_rv_transits_astrometry.ipynb`](examples/tutorial_rv_transits_astrometry.ipynb)
+fits published systems from public data, adding one kind of data at a time: NGTS-6 b
+from radial velocities and then with TESS transits, Gaia-4 b from Gaia DR4 epoch
+astrometry alone and with velocities, and HD 114762 b from 29 years of velocities
+with Gaia DR4. It is saved with its output, as run with astronereus 0.4.38.
+
 ## Contents
 
 - [Install](#install)
