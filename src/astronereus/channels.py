@@ -14,7 +14,7 @@ than an enum of named combinations.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal, Mapping, Sequence
 
 
@@ -205,17 +205,33 @@ class Transit(Channel):
     source = "PM"
     data: Mapping[str, Mapping[str, Sequence[float]]] = field(default_factory=dict)
     limb_darkening: Literal["quadratic", "kipping", "nonlinear", "linear"] = "quadratic"
-    rho_star: Any = None
-    use_rho_s: bool = True
     gravity_darkening: bool = False
     supersample: int | None = None
     exposure_time: float | None = None
     jitter: Any = "default"
     dilution: Mapping[str, float] | None = None
+    # REMOVED, kept only so passing them is an error rather than a silent no-op.
+    # `use_rho_s` (default True here) and `rho_star` were carried to the daemon
+    # and never read by Nereus, so they changed nothing. The stellar density is a
+    # property of the fit, not of one light curve: `fit_joint(..., use_rho_s=True,
+    # priors={"rho_s": ...})` or `fit_transit(...)` with the same keywords. An
+    # InitVar is not a field, so it never reaches `to_wire`.
+    rho_star: InitVar[Any] = None
+    use_rho_s: InitVar[Any] = None
+
+    def __post_init__(self, rho_star, use_rho_s):
+        if rho_star is not None or use_rho_s is not None:
+            raise TypeError(
+                "Transit no longer takes `use_rho_s` or `rho_star`: they were "
+                "accepted and never read. Sample the stellar density with "
+                "`fit_joint(..., use_rho_s=True)` or `fit_transit(..., "
+                "use_rho_s=True)` and put its prior (solar units) in "
+                "`priors={\"rho_s\": {\"type\": \"normal\", \"mu\": ..., "
+                "\"sigma\": ..., \"lo\": ..., \"hi\": ...}}`.")
 
     @classmethod
     def from_file(cls, path, *, limb_darkening="quadratic", rho_star=None,
-                  use_rho_s=True, gravity_darkening=False, supersample=None,
+                  use_rho_s=None, gravity_darkening=False, supersample=None,
                   exposure_time=None, jitter="default", dilution=None,
                   **read_kw):
         """`Transit` straight from a light curve; see `read_photometry`."""
@@ -234,7 +250,7 @@ class Transit(Channel):
 
     @classmethod
     def from_table(cls, table, *, limb_darkening="quadratic", rho_star=None,
-                   use_rho_s=True, gravity_darkening=False, supersample=None,
+                   use_rho_s=None, gravity_darkening=False, supersample=None,
                    exposure_time=None, jitter="default", dilution=None, **kw):
         """`Transit` from an in-memory table; see `RV.from_table`. Pass
         `normalize=True` for a light curve still in electrons per second."""
@@ -244,7 +260,7 @@ class Transit(Channel):
     @classmethod
     def from_arrays(cls, t, flux, flux_err, *, instrument="TESS",
                     time_offset="auto", rename=None, limb_darkening="quadratic",
-                    rho_star=None, use_rho_s=True, gravity_darkening=False,
+                    rho_star=None, use_rho_s=None, gravity_darkening=False,
                     supersample=None, exposure_time=None, jitter="default",
                     dilution=None):
         """`Transit` from three bare arrays."""
@@ -256,7 +272,7 @@ class Transit(Channel):
     @classmethod
     def from_lightkurve(cls, lc, *, normalize=True, per_sector=True,
                         instrument=None, limb_darkening="quadratic",
-                        rho_star=None, use_rho_s=True, gravity_darkening=False,
+                        rho_star=None, use_rho_s=None, gravity_darkening=False,
                         supersample=None, exposure_time=None, jitter="default",
                         dilution=None):
         """`Transit` from a lightkurve `LightCurve` or `LightCurveCollection`.

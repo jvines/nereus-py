@@ -805,9 +805,15 @@ with astronereus.session() as s:
 print(r.params)
 ```
 
-This route has no `use_rho_s` parametrization (a stellar-density prior on the fitted
-`rho_s`): the transit scale comes from `M_s` and `R_s`. For that, for exposure-time
-supersampling and for every other `model` option, use the job config below.
+`use_rho_s=True` samples the stellar density (`rho_s`, solar units) and derives the transit's
+$a/R_\star$ from it and the period, as a job config's `parametrization.use_rho_s` does; the prior
+goes in `priors`, e.g. `{"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11, "lo": 0.1,
+"hi": 10.0}}`. It needs a `Transit` channel, and `fit_transit(..., use_rho_s=True)` takes the same
+keyword. The stellar keywords of a job's `star` block reach the derived table as keywords too:
+`M_s`, `R_s`, `T_eff`, `J_mag`, `K_mag`, `Ab`, `sigma_M_s`, `sigma_R_s`, `sigma_T_eff`
+(`fit_rv`, `fit_transit`, `fit_astrometry`, `fit_joint`). `Transit(use_rho_s=...)` and
+`Transit(rho_star=...)` were never read and now raise. For exposure-time supersampling and for
+every other `model` option, use the job config below.
 
 Both datasets share one orbit: `P_k1`, `Mo_k1` and the eccentricity vector, with
 `K_k1` for the RV amplitude and `rr_k1`, `b_k1` for the transit. Each instrument keeps

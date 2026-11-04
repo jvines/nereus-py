@@ -30,14 +30,16 @@ ENGINE_CLASSES = [
     engines.PA, engines.OFTI,
 ]
 
+# JSON3, not JSON: it is a dependency of Nereus, so `--project=<checkout>` resolves it.
+# `JSON` only resolved where the user's global Julia environment happened to have it.
 _INTROSPECT = r'''
-using Nereus, JSON
+using Nereus, JSON3
 d = Dict{String,Vector{String}}()
 for (name, fn) in Nereus.ENGINES
     ks = String.(Base.kwarg_decl(first(methods(fn))))
     d[name] = filter(k -> !endswith(k, "..."), ks)
 end
-print(JSON.json(d))
+print(JSON3.write(d))
 '''
 
 
