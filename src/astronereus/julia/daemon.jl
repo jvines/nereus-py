@@ -270,9 +270,41 @@ function _fit_dispatch(op::String, payload)
         phi === nothing && error(
             "fit_rm: needs a Transit channel alongside the RM channel")
         rmc, phc = chs[rmi], chs[phi]
+        # fit_rm takes the photometry as a bare instrument map, so the Transit
+        # channel's options have to be folded in here. `exposure_time` is the
+        # one a photometry block has (seconds, per instrument); the others
+        # would be dropped silently, so they throw.
+        for k in ("dilution", "supersample")
+            get(phc, k, nothing) === nothing ||
+                error("fit_rm: Transit($k=...) is not supported on this route; " *
+                      "it was never read")
+        end
+        get(phc, "jitter", "default") == "default" ||
+            error("fit_rm: Transit(jitter=...) is not supported on this route; " *
+                  "set `priors[\"jitter_<instrument>\"]` in the job config")
+        Symbol(get(phc, "limb_darkening", "quadratic")) in (:quadratic, :kipping) ||
+            error("fit_rm: Transit(limb_darkening=...) other than quadratic is not implemented")
+        get(phc, "gravity_darkening", false) == false ||
+            error("fit_rm: Transit(gravity_darkening=True) is not implemented on this route")
+        phot_data = get(phc, "data", nothing)
+        ex = get(phc, "exposure_time", nothing)
+        if ex !== nothing && phot_data !== nothing
+            _ex(inst) = ex isa AbstractDict ? get(ex, inst, nothing) : ex
+            phot_data = Dict{String,Any}(
+                inst => (_ex(inst) === nothing ? blob :
+                         merge(blob, (exposure_time = _ex(inst),)))
+                for (inst, blob) in phot_data)
+        end
         Base.invokelatest(f; rv = get(rmc, "data", nothing),
-                          phot = get(phc, "data", nothing),
+                          phot = phot_data,
                           flavour = Symbol(get(rmc, "flavour", "reloaded")),
+                          planets, engine = eng, output_dir = outdir, priors = priors, extra...)
+    elseif op == "fit_transit"
+        # The whole Transit CHANNEL, not just its data: exposure_time, dilution,
+        # jitter, limb_darkening, ... ride on it, and a bare instrument map
+        # drops them. Julia's fit_transit takes either.
+        isempty(chs) && error("fit_transit: no data channel in payload")
+        Base.invokelatest(f, chs[1];
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_ttv"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]

@@ -161,8 +161,10 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
     `priors["rho_s"]`. `rho_star` was never read and now raises: use
     `use_rho_s` and that prior.
 
-    `gravity_darkening=True` uses the oblate von Zeipel/Barnes model, which
-    yields stellar inclination i* separately from lambda.
+    The other photometry options (`exposure_time`, `dilution`, `jitter`) are
+    those of the `Transit` channel; pass a `Transit` for them. `limb_darkening`
+    must be "quadratic" or "kipping" (one model), and `gravity_darkening=True`
+    raises: the gravity-darkened transit is a job-config option.
     """
     if rho_star is not None:
         raise TypeError(

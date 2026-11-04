@@ -100,3 +100,48 @@ def test_star_keywords_reach_the_four_that_read_them(name, call):
 def test_the_rest_do_not_accept_them(call):
     with pytest.raises(TypeError, match="unknown keyword"):
         call(_Session())
+
+
+# --- the Transit channel's other options ------------------------------------
+
+_OPTS = dict(exposure_time=1800.0, dilution={"T": 0.1}, jitter={"type": "uniform", "lo": 0.0, "hi": 0.01})
+
+
+@pytest.mark.parametrize("field,value", list(_OPTS.items()))
+def test_each_transit_option_is_on_the_wire(field, value):
+    ch = Transit(data=_TR.data, **{field: value})
+    assert ch.to_wire()[field] == value
+    p = _wire(_fit.fit_joint, _RV, ch)
+    assert p["channels"][1][field] == value
+    p = _wire(_fit.fit_transit, ch)
+    assert p["channels"][0][field] == value
+
+
+def test_defaults_send_what_julia_defaults_to():
+    w = Transit(data=_TR.data).to_wire()
+    assert w["limb_darkening"] == "quadratic" and w["gravity_darkening"] is False
+    assert w["jitter"] == "default"
+    for absent in ("exposure_time", "dilution", "supersample"):
+        assert absent not in w
+
+
+@pytest.mark.parametrize("kw,pat", [
+    ({"limb_darkening": "linear"}, "limb_darkening"),
+    ({"limb_darkening": "nonlinear"}, "limb_darkening"),
+    ({"gravity_darkening": True}, "gravity_darkening"),
+    ({"supersample": 5}, "exposure_time"),
+    ({"exposure_time": -1.0}, "positive"),
+    ({"exposure_time": {"T": 0.0}}, "positive"),
+])
+def test_what_nereus_lacks_raises(kw, pat):
+    with pytest.raises(ValueError, match=pat):
+        Transit(data=_TR.data, **kw)
+
+
+def test_kipping_is_accepted():
+    assert Transit(data=_TR.data, limb_darkening="kipping").limb_darkening == "kipping"
+
+
+def test_fit_transit_gravity_darkening_raises():
+    with pytest.raises(ValueError, match="gravity_darkening"):
+        _fit.fit_transit(_TR.data, gravity_darkening=True, session=_Session())

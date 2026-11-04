@@ -198,18 +198,34 @@ class RV(Channel):
 class Transit(Channel):
     """Transit photometry.
 
-    Set `gravity_darkening=True` for the oblate/von-Zeipel model, which gives
-    stellar inclination i* separately from lambda — that is GD_SOURCE, a
-    distinct source flag, not a cosmetic option.
+    Every option below reaches the model (`fit_transit`, `fit_joint`, and
+    `fit_rm` for `exposure_time`), or raises: nothing is accepted and ignored.
+
+    - `exposure_time` (seconds; one value, or `{instrument: seconds}`) turns on
+      finite-exposure supersampling, for cadences longer than 3 minutes (the
+      sub-sample count follows from it, one per minute up to 30). Left unset the
+      model is instantaneous, which is right for 2-minute data and wrong for
+      30-minute data.
+    - `dilution` (`{instrument: D}`, D the third-light fraction; a number is a
+      fixed value, a prior dict a sampled one) and `jitter` (a number or prior
+      dict for every instrument, or `{instrument: ...}`) set the priors on
+      `dilution_<instrument>` and `jitter_<instrument>`. Left at the defaults
+      (no third light, a modified-Jeffreys jitter) they change nothing; giving
+      the same parameter in the fit's `priors` as well is an error.
+    - `limb_darkening` is "quadratic" or "kipping": one model, sampled in
+      Kipping's (q1, q2). The other laws do not exist in Nereus and raise.
+    - `gravity_darkening=True` and `supersample` (an explicit sub-sample count)
+      are not implemented on the typed route and raise; use a job config for
+      gravity darkening, and `exposure_time` for supersampling.
     """
     source = "PM"
     data: Mapping[str, Mapping[str, Sequence[float]]] = field(default_factory=dict)
-    limb_darkening: Literal["quadratic", "kipping", "nonlinear", "linear"] = "quadratic"
+    limb_darkening: Literal["quadratic", "kipping"] = "quadratic"
     gravity_darkening: bool = False
     supersample: int | None = None
-    exposure_time: float | None = None
+    exposure_time: float | Mapping[str, float] | None = None
     jitter: Any = "default"
-    dilution: Mapping[str, float] | None = None
+    dilution: Mapping[str, Any] | None = None
     # REMOVED, kept only so passing them is an error rather than a silent no-op.
     # `use_rho_s` (default True here) and `rho_star` were carried to the daemon
     # and never read by Nereus, so they changed nothing. The stellar density is a
@@ -228,6 +244,28 @@ class Transit(Channel):
                 "use_rho_s=True)` and put its prior (solar units) in "
                 "`priors={\"rho_s\": {\"type\": \"normal\", \"mu\": ..., "
                 "\"sigma\": ..., \"lo\": ..., \"hi\": ...}}`.")
+        if self.limb_darkening not in ("quadratic", "kipping"):
+            raise ValueError(
+                f"Transit(limb_darkening={self.limb_darkening!r}): the transit "
+                "model is quadratic, sampled in Kipping's (q1, q2); \"quadratic\" "
+                "and \"kipping\" are the same model. Other laws are not "
+                "implemented.")
+        if self.gravity_darkening:
+            raise ValueError(
+                "Transit(gravity_darkening=True): the gravity-darkened transit "
+                "(planet mode PM_GD) is a job-config option, not built by the "
+                "typed fit_* functions.")
+        if self.supersample is not None:
+            raise ValueError(
+                "Transit(supersample=...): there is no explicit sub-sample "
+                "count. Set exposure_time (seconds) and the count follows from "
+                "it.")
+        ex = self.exposure_time
+        if ex is not None:
+            vals = ex.values() if isinstance(ex, Mapping) else [ex]
+            if not all(isinstance(v, (int, float)) and v > 0 for v in vals):
+                raise ValueError("Transit(exposure_time=...) must be positive "
+                                 "seconds, one number or {instrument: seconds}")
 
     @classmethod
     def from_file(cls, path, *, limb_darkening="quadratic", rho_star=None,
