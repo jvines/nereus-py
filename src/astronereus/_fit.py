@@ -53,13 +53,25 @@ _MODEL_KW = (
 )
 
 
+# The stellar keywords that feed only the derived table (Nereus
+# `_STAR_DERIVED_KEYS`; `M_s` and `R_s` are model keywords and are in
+# `_MODEL_KW`): T_eff (K), J_mag, K_mag, Ab (Bond albedo) and the 1-sigma of M*,
+# R* and T_eff. Julia's fit_rv, fit_transit, fit_astrometry and fit_joint read
+# them; fit_rm, fit_ttv and fit_binary do not (fit_rm and fit_binary take a
+# `star` dict instead), so those reject them. tests/test_star_keywords.py checks
+# this tuple against Nereus.
+_STAR_KW = ("T_eff", "J_mag", "K_mag", "Ab",
+            "sigma_M_s", "sigma_R_s", "sigma_T_eff")
+
+
 def _run(session, op: str, channels: Sequence[Channel], *, planets,
          engine, stopping, output_dir, priors=None,
-         extra: dict[str, Any] | None = None, **model_kw):
-    bad = set(model_kw) - set(_MODEL_KW)
+         extra: dict[str, Any] | None = None, star: bool = False, **model_kw):
+    known = _MODEL_KW + (_STAR_KW if star else ())
+    bad = set(model_kw) - set(known)
     if bad:
         raise TypeError(
-            f"unknown keyword(s) {sorted(bad)}. Known: {', '.join(_MODEL_KW)}")
+            f"unknown keyword(s) {sorted(bad)}. Known: {', '.join(known)}")
     payload = {
         "priors": priors or {},
         "op": op,
@@ -132,10 +144,11 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
                                           trend_order=trend_order)
     return _run(_sess(session), "fit_rv", [ch], planets=planets,
                 engine=engine, stopping=stopping, output_dir=output_dir,
-                priors=priors, **model_kw, extra={"noise": noise})
+                priors=priors, star=True, **model_kw, extra={"noise": noise})
 
 
 def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
+                use_rho_s: bool = False,
                 limb_darkening: str = "quadratic", rho_star: Any = None,
                 gravity_darkening: bool = False, engine: _eng.Engine | None = None,
                 stopping: Stopping | None = None, output_dir=None,
@@ -143,14 +156,27 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
                 session=None, **model_kw) -> Any:
     """Fit transit photometry alone.
 
-    `gravity_darkening=True` uses the oblate von Zeipel/Barnes model, which
-    yields stellar inclination i* separately from lambda.
+    `use_rho_s=True` samples the stellar density (`rho_s`, solar units) and
+    derives a/R★ from it and the period, as for `fit_joint`; the prior goes in
+    `priors["rho_s"]`. `rho_star` was never read and now raises: use
+    `use_rho_s` and that prior.
+
+    The other photometry options (`exposure_time`, `dilution`, `jitter`) are
+    those of the `Transit` channel; pass a `Transit` for them. `limb_darkening`
+    must be "quadratic" or "kipping" (one model), and `gravity_darkening=True`
+    raises: the gravity-darkened transit is a job-config option.
     """
+    if rho_star is not None:
+        raise TypeError(
+            "fit_transit: `rho_star` was never read. Pass use_rho_s=True and "
+            "the density prior (solar units) as priors={\"rho_s\": {...}}")
     ch = phot if isinstance(phot, Transit) else Transit(
-        data=phot, limb_darkening=limb_darkening, rho_star=rho_star,
+        data=phot, limb_darkening=limb_darkening,
         gravity_darkening=gravity_darkening)
+    extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_transit", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir,
+                priors=priors, star=True, extra=extra, **model_kw)
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
@@ -167,7 +193,8 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
     """
     ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                star=True, **model_kw)
 
 
 def fit_rm(rv_in_transit, *, phot,
@@ -261,6 +288,7 @@ def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
 # --- several techniques together ---------------------------------------------
 
 def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
+              use_rho_s: bool = False,
               engine: _eng.Engine | None = None, stopping: Stopping | None = None,
               output_dir=None, priors: dict | None = None,
               session=None, **model_kw) -> Any:
@@ -273,6 +301,15 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
 
     One operation for "fit these together", rather than a named function per
     combination — the Julia model composes source flags for exactly this reason.
+
+    `use_rho_s=True` samples the stellar density (`rho_s`, solar units) and
+    derives the transit's a/R★ from it and the period, as a run_job config's
+    `parametrization.use_rho_s` does. It needs a `Transit` channel and raises
+    without one. Put the prior on it in `priors`, e.g.
+    `priors={"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11,
+    "lo": 0.1, "hi": 10.0}}`, with `M_s` / `R_s` for the derived table. This
+    keyword is the switch; `Transit` takes neither `use_rho_s` nor `rho_star`
+    (they were never read) and raises if given them.
     """
     if not channels:
         raise ValueError("fit_joint needs at least one channel; for a single "
@@ -281,8 +318,16 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
         raise ValueError(
             f"fit_joint with one channel — use the dedicated entry point for "
             f"{type(channels[0]).__name__} instead, it has a clearer signature")
+    if use_rho_s and not any(isinstance(c, Transit) for c in channels):
+        raise ValueError(
+            "fit_joint: use_rho_s samples the stellar density through the "
+            "transit a/R★, so it needs a Transit channel among the channels")
+    # Sent only when asked for: a runtime that predates the keyword has no
+    # `use_rho_s` on Julia's fit_joint, and `False` is its default anyway.
+    extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                extra=extra, star=True, **model_kw)
 
 
 def _sess(session):

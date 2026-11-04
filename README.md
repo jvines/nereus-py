@@ -775,9 +775,14 @@ print(r.derived)
 ```
 
 A single transit does not fix `P_k1`; bracket it, or fit several transits.
-Finite-exposure supersampling is set in a job config, from the `exposure_time` field
-(seconds) of a `transit_photometry` block (default 120 s; see `phot_blocks` in
-`synth.py`). Gravity-darkened transits are also a job-config option; see
+Finite-exposure supersampling is `Transit(data, exposure_time=1800.0)` (seconds; one number or
+`{instrument: seconds}`) on the typed route, or the `exposure_time` field of a
+`transit_photometry` block in a job config (default 120 s there; see `phot_blocks` in
+`synth.py`). Left unset the typed route's model is instantaneous: right for 2-minute data,
+wrong for 30-minute data. `Transit(dilution={"TESS": 0.1})` fixes the third light and
+`Transit(jitter=...)` sets the photometric jitter prior (a number is fixed, a prior dict is
+sampled). `limb_darkening` is "quadratic" or "kipping" (the same model); other laws,
+`gravity_darkening=True` and `supersample=` raise. Gravity-darkened transits are a job-config option; see
 [obliquity.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/obliquity.md).
 
 The orbital phase is the mean anomaly `Mo_k1` unless you pick another anchor. For a
@@ -811,9 +816,15 @@ with astronereus.session() as s:
 print(r.params)
 ```
 
-This route has no `use_rho_s` parametrization (a stellar-density prior on the fitted
-`rho_s`): the transit scale comes from `M_s` and `R_s`. For that, for exposure-time
-supersampling and for every other `model` option, use the job config below.
+`use_rho_s=True` samples the stellar density (`rho_s`, solar units) and derives the transit's
+$a/R_\star$ from it and the period, as a job config's `parametrization.use_rho_s` does; the prior
+goes in `priors`, e.g. `{"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11, "lo": 0.1,
+"hi": 10.0}}`. It needs a `Transit` channel, and `fit_transit(..., use_rho_s=True)` takes the same
+keyword. The stellar keywords of a job's `star` block reach the derived table as keywords too:
+`M_s`, `R_s`, `T_eff`, `J_mag`, `K_mag`, `Ab`, `sigma_M_s`, `sigma_R_s`, `sigma_T_eff`
+(`fit_rv`, `fit_transit`, `fit_astrometry`, `fit_joint`). `Transit(use_rho_s=...)` and
+`Transit(rho_star=...)` were never read and now raise. For every other `model` option, use the
+job config below.
 
 Both datasets share one orbit: `P_k1`, `Mo_k1` and the eccentricity vector, with
 `K_k1` for the RV amplitude and `rr_k1`, `b_k1` for the transit. Each instrument keeps

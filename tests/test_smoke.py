@@ -180,3 +180,20 @@ def test_rv_plus_transit_fit_joint(session, tmp_path, planets):
     assert res.status != "failed", res.raw.get("error")
     names = set(res.params)
     assert any(n.startswith("K_k1") for n in names) and any(n.startswith("rr_k1") for n in names), names
+
+
+def test_rv_plus_transit_fit_joint_use_rho_s(session, tmp_path):
+    """The stellar density as a sampled parameter in an RV + transit fit_joint,
+    through the daemon, with its prior from `priors`."""
+    rv, tr = _sim_rv_transit()
+    eng = engines.PTEmcee(n_temps=4, n_walkers=24, n_steps=60, n_burnin=30,
+                          seed=1)
+    res = session.fit_joint(
+        rv, tr, planets=1, use_rho_s=True, M_s=1.0, R_s=1.0, engine=eng,
+        output_dir=str(tmp_path),
+        priors={"P_k1": {"type": "uniform", "lo": 2.4, "hi": 2.6},
+                "rho_s": {"type": "normal", "mu": 1.0, "sigma": 0.1,
+                          "lo": 0.3, "hi": 3.0}})
+    assert res.status != "failed", res.raw.get("error")
+    p = res.raw["params"]["rho_s"]
+    assert 0.3 <= p["lo3sig"] and p["hi3sig"] <= 3.0
