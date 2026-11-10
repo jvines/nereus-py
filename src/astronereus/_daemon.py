@@ -11,6 +11,7 @@ import atexit
 import json
 import os
 import re
+import signal
 import socket
 import struct
 import subprocess
@@ -18,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+import warnings
 from pathlib import Path
 
 from . import _runtime
@@ -57,6 +59,83 @@ class FitInterrupted(RuntimeError):
 
 class DaemonError(RuntimeError):
     pass
+
+
+_SOFT_MSG = ("\nInterrupt: asking the sampler to stop and keep the draws it has "
+             "(Ctrl-C again to abort and discard them).\n")
+
+
+class _SoftInterrupt:
+    """The first Ctrl-C during a call asks for a graceful stop; the second aborts.
+
+    The daemon shares our process group, so the same SIGINT reaches Julia, where
+    the PT ensembles answer an interrupt after burn-in by ending production at
+    the last recorded step and returning the draws. All this side has to do is
+    NOT raise KeyboardInterrupt on the first one: that dropped the socket and
+    the draws with it. So while a call is in flight SIGINT is handled here:
+
+    * first: remember it, say what is happening, and keep waiting for the reply;
+    * second: raise KeyboardInterrupt, which `call` turns into a dropped
+      connection exactly as before.
+
+    A handler that never raises cannot tear the reader's buffer in half, which
+    is what a KeyboardInterrupt in the middle of `recv` could do. Only the main
+    thread can install a signal handler; elsewhere (and where there is no
+    SIGINT) this does nothing and the old behaviour stands.
+    """
+
+    def __init__(self, daemon):
+        self._d = daemon
+        self.count = 0
+        self._installed = False
+        self._old = None
+
+    def __enter__(self):
+        import threading
+        if threading.current_thread() is threading.main_thread():
+            try:
+                self._old = signal.signal(signal.SIGINT, self._handler)
+                self._installed = True
+            except (ValueError, OSError):
+                pass
+        return self
+
+    def __exit__(self, *exc):
+        if self._installed:
+            try:
+                signal.signal(signal.SIGINT, self._old if self._old is not None
+                              else signal.default_int_handler)
+            except (ValueError, OSError):
+                pass
+        return False
+
+    def _handler(self, signum, frame):
+        self.count += 1
+        self._reach_daemon()
+        if self.count >= 2:
+            raise KeyboardInterrupt
+        try:
+            sys.stderr.write(_SOFT_MSG)
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+    def _reach_daemon(self) -> None:
+        """Deliver the interrupt to Julia when the process group did not.
+
+        Same group (a terminal's Ctrl-C, a Jupyter kernel interrupt): Julia got
+        it already, and a second copy would abort the very finish the first one
+        asked for. Different group: nobody told Julia, so do it here.
+        """
+        proc = self._d._proc
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            if os.getpgid(proc.pid) == os.getpgid(0):
+                return
+            os.kill(proc.pid, signal.SIGINT)
+        except (AttributeError, OSError):
+            pass
 
 
 # The left bracket Nereus's ProgressBar draws (src/progress.jl). Present on
@@ -584,8 +663,10 @@ class JuliaDaemon:
             # is off between calls so the idle daemon stays quiet.
             if self._forward is not None and _runtime.show_progress():
                 self._forward.set()
+            soft = _SoftInterrupt(self)
             try:
-                self._send_and_wait(action, payload, timeout)
+                with soft:
+                    self._send_and_wait(action, payload, timeout)
                 resp = self._resp
             except BaseException:
                 # BaseException, NOT Exception: cancelling a notebook cell
@@ -621,10 +702,22 @@ class JuliaDaemon:
             if "InterruptException" in err or "InterruptException" in bt:
                 raise FitInterrupted(
                     "the fit was cancelled before it finished, so nothing was "
-                    "written to output_dir. The daemon is still up and warm -- "
+                    "written to output_dir (an interrupt before the end of "
+                    "burn-in leaves no draws to keep, and a second Ctrl-C "
+                    "aborts the wind-up). The daemon is still up and warm -- "
                     "just call the fit again.")
             raise DaemonError(err + "\n" + bt)
-        return resp.get("result")
+        result = resp.get("result")
+        if soft.count and isinstance(result, dict) \
+                and result.get("stopped") == "interrupted":
+            warnings.warn(
+                f"interrupted: the sampler stopped at step "
+                f"{result.get('stopped_at_step')}/{result.get('n_steps')} and "
+                f"kept {result.get('n_draws_kept')} draws; the fit finished "
+                f"normally with them (summary['stopped'] == 'interrupted'). "
+                f"Chains, tables and plots were written as usual.",
+                RuntimeWarning, stacklevel=3)
+        return result
 
     def _drop(self) -> None:
         """Close the socket and forget it, so the next call reconnects."""
