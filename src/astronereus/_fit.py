@@ -64,6 +64,22 @@ _STAR_KW = ("T_eff", "J_mag", "K_mag", "Ab",
             "sigma_M_s", "sigma_R_s", "sigma_T_eff")
 
 
+def _gaia_extra(gaia_id, name, extra: dict | None = None) -> dict | None:
+    """`gaia_id` / `name` for the wire, only when given: a runtime that predates
+    them has no such keyword on Julia's fit_astrometry / fit_joint."""
+    out = dict(extra or {})
+    if gaia_id is not None:
+        if isinstance(gaia_id, bool) or not isinstance(gaia_id, (int, str)):
+            raise TypeError("gaia_id must be a Gaia DR3 source_id: an int, a "
+                            f"string of digits, or 'Gaia DR3 <id>'; got {gaia_id!r}")
+        out["gaia_id"] = gaia_id
+    if name is not None:
+        if not isinstance(name, str) or not name.strip():
+            raise TypeError(f"name must be a non-empty string; got {name!r}")
+        out["name"] = name
+    return out or None
+
+
 def _run(session, op: str, channels: Sequence[Channel], *, planets,
          engine, stopping, output_dir, priors=None,
          extra: dict[str, Any] | None = None, star: bool = False, **model_kw):
@@ -180,7 +196,8 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
-                   planets: int = 1,
+                   planets: int = 1, gaia_id: int | str | None = None,
+                   name: str | None = None,
                    engine: _eng.Engine | None = None,
                    stopping: Stopping | None = None, output_dir=None,
                    priors: dict | None = None,
@@ -190,11 +207,22 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
     `priors["plx"]` must be informative: the abscissae constrain a0 ~ M_sec * plx,
     so mass and parallax are degenerate without it. `priors["M_pri"]` sets the
     primary mass. Both are priors; there is no keyword for either.
+
+    `gaia_id` (the star's Gaia DR3 source_id: an int, a string of digits or
+    "Gaia DR3 <id>") or `name` (any Simbad-resolvable name, looked up to its
+    DR3 source_id; `gaia_id` wins if both are given) make Nereus query the Gaia
+    DR3 parallax at run time and use it as the default `plx` prior, a Gaussian
+    truncated at +-10 sigma on the raw catalogue value (no zero-point
+    correction). It ranks ahead of the HGCA parallax and behind your own
+    `priors["plx"]`, in which case nothing is queried. If the query fails the
+    fit stops rather than falling back. Where the value came from is in
+    `summary["star"]["gaia"]`. Needs a runtime with the Gaia lookup (Nereus
+    newer than 0.8.10).
     """
     ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
                 engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
-                star=True, **model_kw)
+                extra=_gaia_extra(gaia_id, name), star=True, **model_kw)
 
 
 def fit_rm(rv_in_transit, *, phot,
@@ -289,6 +317,7 @@ def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
 
 def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
               use_rho_s: bool = False,
+              gaia_id: int | str | None = None, name: str | None = None,
               engine: _eng.Engine | None = None, stopping: Stopping | None = None,
               output_dir=None, priors: dict | None = None,
               session=None, **model_kw) -> Any:
@@ -310,6 +339,10 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
     "lo": 0.1, "hi": 10.0}}`, with `M_s` / `R_s` for the derived table. This
     keyword is the switch; `Transit` takes neither `use_rho_s` nor `rho_star`
     (they were never read) and raises if given them.
+
+    `gaia_id` / `name` (with an `Astrometry` channel) query the Gaia DR3
+    parallax at run time for the default `plx` prior; see `fit_astrometry`.
+    Without astrometry, or with your own `priors["plx"]`, nothing is queried.
     """
     if not channels:
         raise ValueError("fit_joint needs at least one channel; for a single "
@@ -324,7 +357,7 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
             "transit a/R★, so it needs a Transit channel among the channels")
     # Sent only when asked for: a runtime that predates the keyword has no
     # `use_rho_s` on Julia's fit_joint, and `False` is its default anyway.
-    extra = {"use_rho_s": True} if use_rho_s else None
+    extra = _gaia_extra(gaia_id, name, {"use_rho_s": True} if use_rho_s else None)
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
                 engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
                 extra=extra, star=True, **model_kw)

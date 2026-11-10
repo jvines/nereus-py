@@ -1117,8 +1117,30 @@ Any subset may be given. Two quantities are priors, not arguments, and go in the
 
 | prior | what | note |
 |---|---|---|
-| `plx` | parallax (mas) | Give an informative one. The abscissae constrain a0 ∝ M_sec · plx, so mass and parallax are degenerate otherwise. With an `hgca` supplied, the default is a normal prior built from the catalogue parallax |
+| `plx` | parallax (mas) | Give an informative one. The abscissae constrain a0 ∝ M_sec · plx, so mass and parallax are degenerate otherwise. With `gaia_id`/`name` the default is a normal prior on the Gaia DR3 parallax (below); else, with an `hgca` supplied, one built from the catalogue parallax |
 | `M_pri` | primary mass (M_sun) | Fixed or normal. The mass of the companion scales with it. Without a star mass the default is log-uniform on 0.05-5 |
+
+#### Parallax from Gaia at run time
+
+Pass the star's Gaia DR3 source_id as `gaia_id` (an int, a string of digits, or
+`"Gaia DR3 <id>"`), or its `name` (anything Simbad resolves, such as `"HIP 103836"`),
+to `fit_astrometry` or `fit_joint` and Nereus queries the DR3 parallax itself:
+
+```python
+r = fit_astrometry(iad=iad, hgca=hgca, gaia_id=6774368627975155968,
+                   priors={"M_pri": {"type": "normal", "mu": 0.9, "sigma": 0.05}})
+r = fit_astrometry(iad=iad, name="HIP 103836")      # resolved to its DR3 source_id first
+```
+
+The value becomes the default `plx` prior, a normal prior on the raw catalogue parallax
+(no zero-point correction), truncated at ±10σ. The order of precedence is: your own
+`priors["plx"]` (then nothing is queried), the Gaia lookup, the HGCA parallax, the G23H
+parallax, then log-uniform on 0.1-1000 mas. `gaia_id` wins if both keys are given. The
+lookups are cached on disk, so a rerun is offline. If the query fails the fit stops with a
+message, and does not fall back to another parallax; the way out is a `priors["plx"]`.
+`summary["star"]["gaia"]` records the source_id, parallax, error, DR release and whether
+the star was found by id or name. In a job config the same two keys go in the `star`
+block. These keywords need a runtime newer than Nereus 0.8.10.
 
 For astrometric fits two model options are worth setting: `parametrization="a_driven"`
 (sample the semi-major axis and companion mass, as orvara does) and `time_anchor="Mo"`
