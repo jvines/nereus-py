@@ -190,6 +190,13 @@ class PTEmcee(Engine):
     # restores the pre-0.6.1 behaviour. Never offered to a planet with RV or
     # transit data, so it costs nothing on those fits.
     node_flip: float | None = None
+    # Ending production early without losing the draws (Nereus after 0.8.10; see
+    # `Stopping`). `convergence_stop` and its thresholds are above.
+    max_seconds: float | None = None
+    max_evals: int | None = None
+    # A file whose appearance stops the run at the last recorded step. Left
+    # unset, a fit with an output_dir watches <output_dir>/STOP.
+    stop_file: str | None = None
     show_progress: bool | None = None
 
 
@@ -366,6 +373,21 @@ class TransdimPTEmcee(Engine):
     n_noise_relax: int | None = None
     untemper_transit: bool | None = None
     seed: int | None = None
+    # Run until converged, as for `PTEmcee` (Nereus after 0.8.10). The gating set
+    # is the model index (`n_planets`), the planet-slot parameters (assessed
+    # over the draws where the slot is active, slots relabelled in period
+    # order) and `rho_s`; `science_params` replaces the slot part. Off by
+    # default. The progress bar's Rhat / ESS readout runs either way.
+    convergence_stop: bool | None = None
+    rhat_threshold: float | None = None
+    tail_ess_threshold: float | None = None
+    n_converged_checks: int | None = None
+    min_steps: int | None = None
+    diag_every: int | None = None
+    science_params: Sequence[str] | None = None
+    max_seconds: float | None = None
+    max_evals: int | None = None
+    stop_file: str | None = None
     show_progress: bool | None = None
 
 

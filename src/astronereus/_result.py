@@ -682,6 +682,15 @@ class JobResult:
     def ok(self) -> bool:
         return self.status == "ok"
 
+    @property
+    def stopped(self) -> str | None:
+        """How the sampler ended: "steps" (ran to n_steps), "converged",
+        "interrupted" (Ctrl-C after burn-in), "requested" (the stop file
+        appeared), "max_seconds" or "max_evals". None for an engine that does
+        not report it. `raw["stopped_at_step"]`, `raw["n_steps"]` and
+        `raw["n_draws_kept"]` say where."""
+        return self.raw.get("stopped")
+
     def check(self) -> "JobResult":
         """Raise `JobFailed` unless the run succeeded. Returns self, so chainable."""
         if not self.ok:
