@@ -174,14 +174,26 @@ class Session:
     # -- the actual API ----------------------------------------------------
     def run_job(self, config: dict[str, Any] | str, *,
                 check: bool = True,
-                timeout: float | None = None) -> JobResult:
+                timeout: float | None = None,
+                stop_file=None) -> JobResult:
         """Run a full Nereus job and return its summary.
 
         `config` is a JOB_CONFIG dict (or a path to one). Nereus writes
         `summary.json`, `chains.nc` and the plot tree into `config["output_dir"]`
         and returns the summary, which includes a `figures` manifest mapping
         logical names to paths.
+
+        Ctrl-C (a notebook's interrupt button) after burn-in ends production at
+        the last recorded step and the job finishes normally with the draws so
+        far, `summary["stopped"] == "interrupted"`; a second Ctrl-C aborts.
+        `stop_file` (or `config["stop_file"]`) is a path whose appearance does
+        the same from outside; it defaults to `<output_dir>/STOP`.
         """
+        if stop_file is not None:
+            if not isinstance(config, dict):
+                raise ValueError("stop_file= needs a config dict; for a config "
+                                 "file, put \"stop_file\" in it")
+            config = {**config, "stop_file": str(stop_file)}
         # Validate client-side: a missing output_dir otherwise surfaces as an
         # opaque Julia error several minutes into a run.
         if isinstance(config, dict) and not config.get("output_dir"):

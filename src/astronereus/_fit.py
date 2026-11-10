@@ -65,7 +65,7 @@ _STAR_KW = ("T_eff", "J_mag", "K_mag", "Ab",
 
 
 def _run(session, op: str, channels: Sequence[Channel], *, planets,
-         engine, stopping, output_dir, priors=None,
+         engine, stopping, output_dir, priors=None, stop_file=None,
          extra: dict[str, Any] | None = None, star: bool = False, **model_kw):
     known = _MODEL_KW + (_STAR_KW if star else ())
     bad = set(model_kw) - set(known)
@@ -87,6 +87,10 @@ def _run(session, op: str, channels: Sequence[Channel], *, planets,
         "stopping": (stopping.to_wire() if stopping else None),
         "output_dir": str(output_dir) if output_dir else None,
     }
+    if stop_file is not None:
+        # A path whose appearance ends the run at the last recorded step (see
+        # `Stopping`). With an output_dir Julia watches <output_dir>/STOP anyway.
+        payload["stop_file"] = str(stop_file)
     if extra:
         payload.update(extra)
     payload.update({k: v for k, v in model_kw.items() if v is not None})
@@ -132,7 +136,7 @@ def replot(*channels: Channel, output_dir, plots, priors: dict | None = None,
 def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
            jitter: Any = "default", trend_order: int = 0,
            noise: Any = None, engine: _eng.Engine | None = None,
-           stopping: Stopping | None = None, output_dir=None,
+           stopping: Stopping | None = None, stop_file=None, output_dir=None,
            priors: dict | None = None,
            session=None, **model_kw) -> Any:
     """Fit radial velocities alone.
@@ -143,7 +147,7 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
     ch = rv if isinstance(rv, RV) else RV(data=rv, jitter=jitter,
                                           trend_order=trend_order)
     return _run(_sess(session), "fit_rv", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir,
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
                 priors=priors, star=True, **model_kw, extra={"noise": noise})
 
 
@@ -151,7 +155,7 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
                 use_rho_s: bool = False,
                 limb_darkening: str = "quadratic", rho_star: Any = None,
                 gravity_darkening: bool = False, engine: _eng.Engine | None = None,
-                stopping: Stopping | None = None, output_dir=None,
+                stopping: Stopping | None = None, stop_file=None, output_dir=None,
                 priors: dict | None = None,
                 session=None, **model_kw) -> Any:
     """Fit transit photometry alone.
@@ -175,14 +179,14 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
         gravity_darkening=gravity_darkening)
     extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_transit", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir,
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
                 priors=priors, star=True, extra=extra, **model_kw)
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
                    planets: int = 1,
                    engine: _eng.Engine | None = None,
-                   stopping: Stopping | None = None, output_dir=None,
+                   stopping: Stopping | None = None, stop_file=None, output_dir=None,
                    priors: dict | None = None,
                    session=None, **model_kw) -> Any:
     """Fit absolute or relative astrometry alone (no RV).
@@ -193,7 +197,7 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
     """
     ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
                 star=True, **model_kw)
 
 
@@ -289,7 +293,7 @@ def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
 
 def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
               use_rho_s: bool = False,
-              engine: _eng.Engine | None = None, stopping: Stopping | None = None,
+              engine: _eng.Engine | None = None, stopping: Stopping | None = None, stop_file=None,
               output_dir=None, priors: dict | None = None,
               session=None, **model_kw) -> Any:
     """Fit several techniques simultaneously.
@@ -326,7 +330,7 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
     # `use_rho_s` on Julia's fit_joint, and `False` is its default anyway.
     extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
                 extra=extra, star=True, **model_kw)
 
 
