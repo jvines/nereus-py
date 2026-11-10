@@ -23,6 +23,7 @@ with Gaia DR4. It is saved with its output, as run with astronereus 0.4.38.
 
 - [Install](#install)
 - [Sessions](#sessions)
+  - [Stopping a fit early](#stopping-a-fit-early)
 - [Getting data in](#getting-data-in)
 - [Pre-fit tools](#pre-fit-tools)
 - [Fit modes](#fit-modes)
@@ -199,11 +200,52 @@ nothing talks to it for `idle_timeout` seconds.
 see [Job configs](#job-configs-run_job). The typed `fit_*` entry points described in
 the later sections are the usual route.
 
+### Stopping a fit early
+
+Four ways to end a PT fit (`PTEmcee`, the default, and `TransdimPTEmcee`) before
+its `n_steps` and keep the draws. The sampler stops at the last fully recorded
+step and the fit finishes normally: chains, tables and plots are written, and
+`r.summary["stopped"]` (or `r.stopped`) says why, with `stopped_at_step`,
+`n_steps` and `n_draws_kept` beside it.
+
+| how | `stopped` |
+|---|---|
+| Ctrl-C, or the stop button in a notebook, after burn-in | `"interrupted"` |
+| `engines.PTEmcee(convergence_stop=True, rhat_threshold=1.01, tail_ess_threshold=1000)` (or `Stopping(rhat_max=..., ess_min=...)`) | `"converged"` |
+| `Stopping(max_seconds=3600)` or `max_evals=` | `"max_seconds"` / `"max_evals"` |
+| a file appears at `stop_file=` (default `<output_dir>/STOP`) | `"requested"` |
+
+```python
+r = s.fit_rv(ds.rv, planets=1, output_dir="out",
+             stopping=astronereus.Stopping(rhat_max=1.01, ess_min=1000))
+r.stopped            # "converged" -- the run ended early with a usable posterior
+```
+
+Ctrl-C asks for the graceful stop and the call keeps waiting for the result,
+which comes back with a `RuntimeWarning` naming the step. **Ctrl-C again aborts
+instead** and discards the draws. An interrupt during burn-in aborts too, since
+there are no draws yet.
+
+The convergence gate is off by default. For `TransdimPTEmcee` it watches the
+model index, the planet-slot parameters (over the draws where each slot is
+active) and `rho_s`, and the progress bar shows live `Rhat` and `ESS` either way.
+`Stopping.logz_tol` sets `dlogz` for the nested engines; a `Stopping` field the
+engine cannot honour raises and names the engines that can. These need a runtime
+newer than 0.8.10 (see [Runtime bundles](#runtime-bundles)).
+
+From outside the process (a worker, a web front end), create the stop file:
+
+```python
+pathlib.Path("out/STOP").touch()      # looked for every ~5 s; never deleted for you
+```
+
 ### Interrupting a fit
 
-Ctrl-C (or the stop button in a notebook) reaches both Python and the Julia sampler.
-The fit stops, `FitInterrupted` is raised, nothing is written to `output_dir`, and
-the daemon stays up and warm:
+Ctrl-C (or the stop button in a notebook) reaches both Python and the Julia
+sampler. After burn-in it is a graceful stop, above. Otherwise (during burn-in, a
+second Ctrl-C, or an engine that cannot stop early) the fit is cancelled,
+`FitInterrupted` is raised, nothing is written to `output_dir`, and the daemon
+stays up and warm:
 
 ```python
 try:
