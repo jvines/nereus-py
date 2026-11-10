@@ -207,6 +207,17 @@ function _fit_dispatch(op::String, payload)
     end
 
     f = getfield(mod, Symbol(op))
+    # `stopping` used to be dropped here without a word (it is in _ENVELOPE, and
+    # nothing forwarded it), so Stopping(max_seconds=...) ran unbounded. Hand it
+    # to the fit functions that declare it; for those that do not (fit_rm,
+    # fit_ttv, fit_binary) say so instead of ignoring it.
+    stp = get(payload, :stopping, nothing)
+    if stp !== nothing
+        any(m -> :stopping in Base.kwarg_decl(m), methods(f)) ||
+            error("$op does not take a Stopping criterion; the runtime ends it on " *
+                  "the engine's own settings. Drop `stopping=`.")
+        extra[:stopping] = _j(stp)
+    end
     _before = outdir === nothing ? Dict{String,Float64}() :
               _png_mtimes(joinpath(outdir, "plots"))
     r = if op == "fit_tomography"
