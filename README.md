@@ -1461,6 +1461,17 @@ before sampling starts. The Beta and modified-Jeffreys priors are reachable thro
 `LogUniformPrior`, `ModJeffreysPrior`, `NormalPrior`, `FixedPrior`, `SinePrior` and
 `BetaPrior`.
 
+Angles are sampled on their own topology, whatever spec is given. A full-circle
+angle (`Omega`, `lambda`, `w` under the `ew` parametrization, and `Mo` or `phic`
+unless TTVs are modelled) with a uniform over one period, a uniform over several
+periods or a normal is a circle: a normal is wrapped (its density summed over every
+period), and the samplers move the seam of the window off the posterior, so lambda
+near +-pi or Omega near 0 is never against a wall. An inclination (`inc_k`, `i_star`)
+whose prior covers all of `[0, pi]` (`sine`, `uniform` on `[0, pi]`, a normal truncated
+there) is folded at its poles, so 0 and 180 deg are values, not edges. A prior on only
+part of an angle's range keeps its walls, and a posterior pressing against one is
+reported as the prior's restriction.
+
 ```python
 priors = {
     "P_k1": {"type": "loguniform", "lo": 8, "hi": 16},     # days
