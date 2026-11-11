@@ -625,7 +625,7 @@ A `run_job` config is documented in
 [JOB_CONFIG.md](https://github.com/jvines/Nereus.jl/blob/main/docs/JOB_CONFIG.md);
 the examples below show the blocks each mode needs. Times are MJD, RVs and their
 errors are in m/s, flux is relative. Parameters are named `<name>_k<n>` per planet
-(`P_k1`, `K_k1`, `Mo_k1`) and `<name>_<instrument>` per instrument (`gamma_HARPS`,
+(`P_k1`, `K_k1`, `phic_k1`) and `<name>_<instrument>` per instrument (`gamma_HARPS`,
 `sigma_HARPS`, `jitter_TESS`). `fit_*` priors are written
 `{"type": "uniform", "lo": 3.4, "hi": 3.6}` and `run_job` priors
 `{"type": "UniformPrior", "args": [3.4, 3.6]}`; see [Priors](#priors). The examples
@@ -716,8 +716,9 @@ and `show` prints it in raw form. The same tables are written to
 
 `fit_rv` fits one or more Keplerians to RVs from any number of instruments. Each
 instrument gets a systemic offset `gamma_<inst>` (m/s) and a jitter `sigma_<inst>`
-(m/s). The default planet block is `P`, `K`, `sesinw`, `secosw` and `Mo`. Bracket
-`P_k1` whenever you know roughly where it is.
+(m/s). The default planet block is `P`, `K`, `sesinw` and `secosw`, and the orbital
+phase is the transit phase `phic_k1` (see [Transits](#transits)). Bracket `P_k1`
+whenever you know roughly where it is.
 
 ```python
 import astronereus
@@ -827,16 +828,25 @@ sampled). `limb_darkening` is "quadratic" or "kipping" (the same model); other l
 `gravity_darkening=True` and `supersample=` raise. Gravity-darkened transits are a job-config option; see
 [obliquity.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/obliquity.md).
 
-The orbital phase is the mean anomaly `Mo_k1` unless you pick another anchor. For a
-transiting planet pass `time_anchor="phic"`. The sampler then takes the transit phase
-`phic_k1 = 2 pi (Tc - t_ref_c) / P` (rad, uniform on `[-pi, pi]` by default), which the
-transit pins whatever e and omega are, and reports the mid-transit time as the derived
-`Tc_k1` (BJD), computed from each draw's own period. `t_ref_c` is the median
-photometric time, so `Tc_k1` is the transit nearest the middle of the data. A
-`Tc_k1` prior over the whole baseline (`time_anchor="Tc"`) instead holds one copy of
-the orbit per period, which the sampler does not mix between; with the period longer
-than the baseline it cuts off part of the phase. In a job config the same choice is
-`model.parametrization.time = "phic"`.
+The orbital phase is the transit phase `phic_k1 = 2 pi (Tc - t_ref_c) / P` (rad,
+uniform on `[-pi, pi]` by default), in every fit unless you pick another anchor with
+`time_anchor`. A transit pins it whatever e and omega are. Without one it is still the
+better coordinate: at low eccentricity the data fix the mean longitude `Mo + omega`
+rather than either angle, so a fit in the mean anomaly `Mo` walks a ridge in
+(`Mo`, omega) that biases e upwards, while `phic` is close to the mean longitude and
+has no ridge. For a given period, e and omega the two differ by a shift, so the prior
+and the posterior are the same orbit. Each draw also reports the mid-transit time
+`Tc_k1` (BJD), the time of periastron `Tp_k1` (BJD) and the mean anomaly at the
+reference epoch `Mo_deg_k1` as derived quantities, from its own period. `t_ref_c` is
+the median photometric time (the reference epoch of the data when there is no
+photometry), so `Tc_k1` is the transit nearest the middle of the data.
+`time_anchor="Mo"`, `"Tp"` or `"Tc"` samples that instead; a model with the O'Neil
+observable prior (`parametrization.obs_prior` in a job config) keeps `"Mo"`, the one
+anchor its density is defined over. A `Tc_k1` prior over the whole baseline
+(`time_anchor="Tc"`) holds one copy of the orbit per period, which the sampler does not
+mix between; with the period longer than the baseline it cuts off part of the phase. In
+a job config the same choice is `model.parametrization.time`. Runtimes up to Nereus
+0.8.10 default to `"Mo"`; pass `time_anchor="phic"` there.
 
 ### RV and transit together
 
@@ -852,7 +862,7 @@ from synth import make_lc, make_rv
 
 with astronereus.session() as s:
     r = s.fit_joint(RV(data=make_rv()), Transit(data=make_lc(n_tr=3)), planets=1,
-                    M_s=1.0, R_s=1.0, time_anchor="phic",
+                    M_s=1.0, R_s=1.0,
                     priors={"P_k1": {"type": "uniform", "lo": 3.4, "hi": 3.6},
                             "rr_k1": {"type": "uniform", "lo": 0.02, "hi": 0.3}})
 print(r.params)
@@ -868,7 +878,7 @@ keyword. The stellar keywords of a job's `star` block reach the derived table as
 `Transit(rho_star=...)` were never read and now raise. For every other `model` option, use the
 job config below.
 
-Both datasets share one orbit: `P_k1`, `Mo_k1` and the eccentricity vector, with
+Both datasets share one orbit: `P_k1`, `phic_k1` and the eccentricity vector, with
 `K_k1` for the RV amplitude and `rr_k1`, `b_k1` for the transit. Each instrument keeps
 its own offsets and jitters. Use the `RVPM` planet mode; `trend_order`,
 `phot_trend_order` and `noise_models` go in the `model` block. Adding astrometry is
@@ -1043,8 +1053,8 @@ planet slot, keyed by slot number as a string. The default prior on each offset 
 normal of width 1 day, so set a tighter one. `RVPM_TTV_NB` predicts the timings from
 the planets' masses and orbits: it needs two or more planets, and RV to give the
 masses. `ttv_backend` selects the predictor: `"ttvfaster"` (first order, the default)
-or `"nbody"` (full integration, several times slower; give `rr`, `b`, `Mo` and the
-eccentricity vector bounded priors).
+or `"nbody"` (full integration, several times slower; give `rr`, `b`, the phase
+`phic` and the eccentricity vector bounded priors).
 
 ```python
 import numpy as np
@@ -1184,10 +1194,11 @@ message, and does not fall back to another parallax; the way out is a `priors["p
 the star was found by id or name. In a job config the same two keys go in the `star`
 block. These keywords need a runtime newer than Nereus 0.8.10.
 
-For astrometric fits two model options are worth setting: `parametrization="a_driven"`
-(sample the semi-major axis and companion mass, as orvara does) and `time_anchor="Mo"`
-(mean anomaly at the reference epoch, which behaves better for long periods). Both are
-keyword arguments of `fit_astrometry` and `fit_joint`; the parametrizations are
+For astrometric fits `parametrization="a_driven"` is worth setting (sample the
+semi-major axis and companion mass, as orvara does). The examples below also pass
+`time_anchor="Mo"` (the mean anomaly at the reference epoch); the default, the transit
+phase `phic`, describes the same orbit without the low-eccentricity ridge of `Mo`. Both
+are keyword arguments of `fit_astrometry` and `fit_joint`; the parametrizations are
 described in
 [parametrizations.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/parametrizations.md).
 
@@ -1483,7 +1494,7 @@ priors = {
 with astronereus.session() as s:
     r = s.fit_rv(rv, planets=1, priors=priors, output_dir="out/priors")
 print(list(r.params))
-# ['K_k1', 'gamma_HARPS', 'gamma_HIRES', 'P_k1', 'sigma_HARPS', 'sigma_HIRES', 'Mo_k1']
+# ['K_k1', 'gamma_HARPS', 'gamma_HIRES', 'P_k1', 'sigma_HARPS', 'sigma_HIRES', 'phic_k1']
 ```
 
 Fixed parameters do not appear in `r.params`.
@@ -1499,8 +1510,8 @@ from your data dict.
 | `P_k1` | period (days) | log-uniform from 0.1 d to three baselines |
 | `K_k1` | RV semi-amplitude (m/s) | modified Jeffreys, ceiling from the RV scatter |
 | `sesinw_k1`, `secosw_k1` | sqrt(e) sin(omega), sqrt(e) cos(omega) | uniform on `[-1, 1]` |
-| `Mo_k1` | mean anomaly at the reference epoch (rad) | uniform on `[0, 2 pi]` |
-| `phic_k1` | transit phase `2 pi (Tc - t_ref_c) / P` (rad), replaces `Mo_k1` under `time_anchor="phic"` | uniform on `[-pi, pi]` |
+| `phic_k1` | transit phase `2 pi (Tc - t_ref_c) / P` (rad), the default anchor; `Tc_k1`, `Tp_k1` and `Mo_deg_k1` are derived from it | uniform on `[-pi, pi]` |
+| `Mo_k1` | mean anomaly at the reference epoch (rad), replaces `phic_k1` under `time_anchor="Mo"` | uniform on `[0, 2 pi]` |
 | `gamma_<inst>` | RV zero point (m/s) | uniform, data mean plus or minus three times the scatter |
 | `sigma_<inst>` | extra RV jitter (m/s) | normal(5, 5) truncated to `[0, 50]` |
 | `inc_k1`, `Omega_k1` | inclination, node (rad), astrometric planets | sine, uniform on `[0, 2 pi]` |
@@ -1719,8 +1730,8 @@ subclass holding the median, so it works in arithmetic.
 ```python
 print(r.params)
 # fitted parameters (9)
-#   Mo_k1         3.54 +0.83 -2.28  rad  = 202.66 deg
 #   P_k1         12.00 +1.38 -0.77  d
+#   phic_k1      -0.42 +0.05 -0.05  rad  = -24.06 deg
 #   ...
 p = r.params["P_k1"]        # also r.params.P_k1
 float(p)                    # the median

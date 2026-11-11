@@ -352,7 +352,9 @@ class TransdimPTEmcee(Engine):
     # the (Mo, omega) -> (Mo + d, omega - d) slide along the mean-longitude
     # ridge. At low e the data pin lambda = Mo + omega rather than either angle,
     # and under (:Mo, :sesinw) that ridge is a helix the linear stretch can only
-    # cut chords across, so walkers freeze on their own arc.
+    # cut chords across, so walkers freeze on their own arc. It acts only under
+    # time_anchor="Mo": the default anchor, the transit phase phic, is close to
+    # lambda at low e and has no ridge to slide along.
     #
     # OFF BY DEFAULT IN JULIA (0.0) and that is deliberate: at the ensemble
     # level it trades median throughput for tail risk. Over 16 seeds, nine

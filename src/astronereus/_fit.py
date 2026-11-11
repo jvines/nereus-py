@@ -40,7 +40,7 @@ _MODEL_KW = (
     "science",           # run the post-fit block (ppc/loo/tables/...); default True
     "output",            # the JOB_CONFIG `output` block: ppc_n_draws, loo, ...
     "parametrization",   # "a_driven" | "K_driven" | "M_sec_driven"
-    "time_anchor",       # "Mo" | "Tp" | "Tc" | "phic" (transit phase)
+    "time_anchor",       # "phic" (transit phase; the default after Nereus 0.8.10) | "Mo" | "Tp" | "Tc"
     "stability",         # "none" | "amd" | "gladman"
     "R_s",               # stellar radius (R_sun)
     "M_s",               # stellar mass (M_sun)
