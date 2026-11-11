@@ -840,9 +840,8 @@ and the posterior are the same orbit. Each draw also reports the mid-transit tim
 reference epoch `Mo_deg_k1` as derived quantities, from its own period. `t_ref_c` is
 the median photometric time (the reference epoch of the data when there is no
 photometry), so `Tc_k1` is the transit nearest the middle of the data.
-`time_anchor="Mo"`, `"Tp"` or `"Tc"` samples that instead; a model with the O'Neil
-observable prior (`parametrization.obs_prior` in a job config) keeps `"Mo"`, the one
-anchor its density is defined over. A `Tc_k1` prior over the whole baseline
+`time_anchor="Mo"`, `"Tp"` or `"Tc"` samples that instead, and so does a fit whose
+`priors` name `Mo_k1`, `Tp_k1` or `Tc_k1` without a `time_anchor`. A `Tc_k1` prior over the whole baseline
 (`time_anchor="Tc"`) holds one copy of the orbit per period, which the sampler does not
 mix between; with the period longer than the baseline it cuts off part of the phase. In
 a job config the same choice is `model.parametrization.time`. Runtimes up to Nereus
