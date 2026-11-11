@@ -265,10 +265,14 @@ function _fit_dispatch(op::String, payload)
         Base.invokelatest(f, chs...; planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_astrometry"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
+        # `hip_scans` only when given: a runtime older than the keyword would
+        # take it as an unknown one.
+        hs = get(c, "hip_scans", nothing)
+        hkw = hs === nothing ? (;) : (; hip_scans = hs)
         Base.invokelatest(f; iad = get(c, "iad", nothing),
                           hgca = get(c, "hgca", nothing),
                           gost = get(c, "gost", nothing),
-                          relast = get(c, "relast", nothing),
+                          relast = get(c, "relast", nothing), hkw...,
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_rm"
         # fit_rm(; rv, phot, ...) is keyword-only and REQUIRES phot: the RM
