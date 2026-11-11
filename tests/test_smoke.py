@@ -128,7 +128,9 @@ def test_rv_plus_inline_hgca(session, tmp_path):
                    [[4e-4, 0.0], [0.0, 4e-4]],
                    [[1e-3, 0.0], [0.0, 1e-3]]],
         "plx": 50.0, "plx_err": 0.05, "hip_id": 1}}
-    res = session.fit_joint(_sim_rv(), astronereus.Astrometry(hgca=hgca),
+    # hip_scans=False: the row's hip_id would otherwise fetch its Hipparcos
+    # scans (Nereus newer than 0.8.10), a ~350 MB download for a smoke test.
+    res = session.fit_joint(_sim_rv(), astronereus.Astrometry(hgca=hgca, hip_scans=False),
                             planets=1, engine=SMOKE, priors=_HGCA_PRIORS,
                             output_dir=str(tmp_path))
     assert res.status != "failed", getattr(res, "error", res)
@@ -146,7 +148,9 @@ def test_rv_plus_hgca_from_the_loader(session, tmp_path):
     """The user's path: read the row with the session's loader, hand the dict
     it returns straight to the channel."""
     hgca = session.load_hgca(path=_hgca_catalogue(), hip=85653)
-    res = session.fit_joint(_sim_rv(), astronereus.Astrometry(hgca=hgca),
+    # hip_scans=False: the row's hip_id would otherwise fetch its Hipparcos
+    # scans (Nereus newer than 0.8.10), a ~350 MB download for a smoke test.
+    res = session.fit_joint(_sim_rv(), astronereus.Astrometry(hgca=hgca, hip_scans=False),
                             planets=1, engine=SMOKE, priors=_HGCA_PRIORS,
                             output_dir=str(tmp_path))
     assert res.status != "failed", getattr(res, "error", res)

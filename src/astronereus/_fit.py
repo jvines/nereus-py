@@ -200,6 +200,7 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
+                   hip_scans=None,
                    planets: int = 1, gaia_id: int | str | None = None,
                    name: str | None = None,
                    engine: _eng.Engine | None = None,
@@ -222,8 +223,13 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
     fit stops rather than falling back. Where the value came from is in
     `summary["star"]["gaia"]`. Needs a runtime with the Gaia lookup (Nereus
     newer than 0.8.10).
+
+    `hip_scans`: the Hipparcos scans the HGCA Hipparcos epoch is fitted
+    through; see `Astrometry`. None lets Nereus take the IAD's or fetch them
+    by the HGCA row's `hip_id`; False opts out.
     """
-    ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast)
+    ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast,
+                    hip_scans=hip_scans)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
                 extra=_gaia_extra(gaia_id, name), star=True, **model_kw)

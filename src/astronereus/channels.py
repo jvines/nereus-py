@@ -352,12 +352,24 @@ class Astrometry(Channel):
         gost={"values": {"t": ..., "psi": ..., "parallax_factor": ...}}
 
     RV + HGCA is `fit_joint(RV(...), Astrometry(hgca=..., gost=...), ...)`.
+
+    `hip_scans` is the Hipparcos scan geometry the HGCA Hipparcos proper
+    motion, and the Hipparcos position in its Hipparcos-Gaia difference, are
+    fitted through, as the catalogue measured them. Left as None, Nereus uses
+    the IAD's own scans when `iad` holds Hipparcos data, and otherwise fetches
+    them by the HGCA row's `hip_id` (cached; a ~350 MB bundle on first use):
+
+        hip_scans=False                  # none: instantaneous reflex, warned
+        hip_scans={"hip_id": 85653}
+        hip_scans={"values": {"t": ..., "psi": ..., "parallax_factor": ...,
+                              "abscissa_err": ...}}
     """
     source = "AS"
     iad: Any = None
     hgca: Any = None
     gost: Any = None
     relast: Any = None
+    hip_scans: Any = None
 
     @classmethod
     def from_relast_file(cls, path, *, iad=None, hgca=None, gost=None,
