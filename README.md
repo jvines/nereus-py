@@ -754,7 +754,7 @@ Keywords beyond the data:
 | `external_priors` | priors on derived quantities, e.g. eccentricity |
 | `plots`, `science`, `output_dir` | figures, the post-fit block and where files go ([Results](#results)) |
 
-Jitter can be zero. Its default prior is a normal on (0, 50) m/s truncated at 0, so a
+Jitter can be zero. Its default prior is `NormalPrior(5, 5, 0, 50)` (m/s: a normal of mean 5 and width 5, truncated to `[0, 50]`), so a
 posterior piled against zero is a valid answer. To remove the parameter instead, fix
 it: `"sigma_APF": {"type": "fixed", "value": 0.0}`.
 
@@ -1573,8 +1573,8 @@ print(r)
 | `PTHMC` | `pt_hmc` | NUTS inside PT; smooth, differentiable fixed-dimension models | `n_temps`, `n_walkers_per_temp`, `n_sweeps`, `n_warmup`, `target_accept` | yes |
 | `PTWhitening` | `pt_whitening` | PT with whitened proposals, for strongly correlated posteriors | `n_temps`, `n_walkers`, `n_steps`, `n_burnin`, `whiten_window` | yes |
 | `Nested` | `nested` | a single-run evidence for fixed dimension | `n_live`, `dlogz`, `bounds`, `proposal`, `parallel` | yes |
-| `NestedINS` | `nested_ins` | importance nested sampling | `n_live`, `dlogz`, `proposal`, `max_iter` | no |
-| `NestedDynamic` | `nested_dynamic` | dynamic nested sampling, live points follow the posterior | `n_live_init`, `n_live_batch`, `dlogz_init`, `dlogz_batch` | no |
+| `NestedINS` | `nested_ins` | importance nested sampling | `n_live`, `dlogz`, `proposal`, `max_iter` | yes |
+| `NestedDynamic` | `nested_dynamic` | dynamic nested sampling, live points follow the posterior | `n_live_init`, `n_live_batch`, `dlogz_init`, `dlogz_batch` | yes |
 | `NUTS` | `nuts` | smooth unimodal posteriors | `n_samples`, `n_warmup`, `n_chains`, `target_accept`, `ad_backend` | no |
 | `Ensemble` | `ensemble` | plain affine-invariant ensemble, one temperature | `n_walkers`, `n_steps`, `n_burnin`, `thinning` | no |
 | `ESS` | `ess` | elliptical slice sampling, Gaussian-prior latent models | `n_samples`, `n_burnin`, `n_chains` | no |
@@ -1627,10 +1627,11 @@ with astronereus.session() as s:
                  priors={"P_k1": {"type": "normal", "mu": 12, "sigma": 0.1, "lo": 11, "hi": 13},
                          "sigma_HARPS": 1.0, "sigma_HIRES": 1.0},
                  engine=engines.MAP(n_starts=8), output_dir="out/map")
-print(m.log_z)                 # Laplace evidence
+print(m.log_z)                 # Laplace evidence (`m.params` is empty for MAP; see Known limitations)
 print(m.raw["map"])
 # {'railed': False, 'railed_params': [], 'log_posterior': -697.77,
-#  'converged': False, 'n_basins': 8}
+#  'converged': False, 'n_basins': 8,
+#  'log_z': 'Laplace approximation at the MAP'}
 ```
 
 A railed fit comes back with `status="railed"` rather than `"ok"`; see
@@ -1860,7 +1861,8 @@ s.replot(rv, output_dir="out/res", planets=1, plots=["corner"],      # session f
 
 ### JobFailed
 
-A `fit_*` call that Nereus rejects after running, such as a railed `MAP`, returns a
+A `fit_*` call that Nereus rejects after running, such as a `MAP` that rails against a
+prior bound, returns a
 `JobResult` with `ok == False` and prints as
 `<JobResult FAILED status='railed' error=...>`. It does not raise. Call `r.check()` to
 turn that into an exception; it returns the result when the run succeeded, so it
@@ -1876,8 +1878,12 @@ try:
     m.check()
 except JobFailed as e:
     print(e.error)
+# when a start rails, e.g.:
 # MAP railed against a prior bound on: P_k1, K_k1 - treat this as a failed fit, not a result
 ```
+
+Whether a given fit rails depends on the data and the priors: with a bracket that
+contains the true period the same call can succeed, and `m.check()` then returns `m`.
 
 `JobFailed` carries `error`, `traceback` and `config_path`. Errors raised before a fit
 starts (an unknown prior type, an unknown sampler name in a config) are
@@ -1923,7 +1929,7 @@ Differences from `fit_*`:
   `{"type": "ModJeffreysPrior", "args": [knee, upper]}`.
 - Parameters come back under `r.raw["fitted"]["parameters"]` (each entry has `value`,
   `err_lo`, `err_hi`, `ci3`, `unit`; the `show` helper in [Fit modes](#fit-modes)
-  prints them). `r.derived`, `r.log_z` and `r.figures` work as for `fit_*`.
+  prints them). `r.params`, `r.derived`, `r.log_z` and `r.figures` work as for `fit_*`.
 - A bad config (an unknown `sampler.name`, a missing block) raises `DaemonError`
   listing the valid names, even with `check=False`.
 - `run_job` raises `ValueError` before starting if `output_dir` is missing.
