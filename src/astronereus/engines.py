@@ -131,6 +131,7 @@ class PTWhitening(Engine):
     init_strategy: Literal["prior"] | None = None
     seed: int | None = None
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
+    de_move: float | None = None             # Nereus after 0.8.10; see PTEmcee
     show_progress: bool | None = None
 
 
@@ -190,6 +191,14 @@ class PTEmcee(Engine):
     # restores the pre-0.6.1 behaviour. Never offered to a planet with RV or
     # transit data, so it costs nothing on those fits.
     node_flip: float | None = None
+    # Nereus after 0.8.10. Probability per walker and step of a differential-
+    # evolution move, x' = x + γ(x_j − x_k) + ε, in place of the stretch move.
+    # The stretch move proposes along chords, which leave a thin curved ridge,
+    # so walkers burn-in leaves on one stay: one transit-only seed in six kept
+    # 47% of its draws on the constant-duration ridge (nested sampling: 1.4%)
+    # with R-hat at 1.0002.
+    # 0.5 by default in Julia; `0` restores the stretch-only kernel draw for draw.
+    de_move: float | None = None
     # Ending production early without losing the draws (Nereus after 0.8.10; see
     # `Stopping`). `convergence_stop` and its thresholds are above.
     max_seconds: float | None = None
@@ -347,6 +356,7 @@ class TransdimPTEmcee(Engine):
     ladder_adapt_K: float | None = None
     prune_stranded: bool | None = None       # Nereus >= 0.6.0; see PTEmcee
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
+    de_move: float | None = None             # Nereus after 0.8.10; see PTEmcee
     # Nereus >= 0.7.0, and trans-dim only -- pt_emcee and pt_whitening do not
     # take it. Tempered probability, per walker, planet and step, of proposing
     # the (Mo, omega) -> (Mo + d, omega - d) slide along the mean-longitude
@@ -455,6 +465,7 @@ class Ensemble(Engine):
     n_chains: int | None = None
     thinning: int | None = None
     seed: int | None = None
+    de_move: float | None = None             # Nereus after 0.8.10; see PTEmcee
 
 
 @dataclass
@@ -479,6 +490,8 @@ class PA(Engine):
     ess_target: float | None = None
     step_scale: float | None = None
     stretch_a: float | None = None
+    # Nereus after 0.8.10, `mutation_kernel="stretch"` only; see PTEmcee.
+    de_move: float | None = None
     mutation_kernel: Literal["stretch", "rwm", "adaptive_cov"] | None = None
     seed: int | None = None
     show_progress: bool | None = None

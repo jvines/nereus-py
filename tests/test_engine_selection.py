@@ -85,3 +85,14 @@ def test_lambda_slide_is_reachable_and_transdim_only():
     assert engines.TransdimPTEmcee(lambda_slide_sigma=0.6).options() == {"lambda_slide_sigma": 0.6}
     for cls in (engines.PTEmcee, engines.PTWhitening):
         assert not hasattr(cls(), "lambda_slide")
+
+
+@pytest.mark.parametrize("cls", [engines.PTEmcee, engines.TransdimPTEmcee,
+                                 engines.PTWhitening, engines.Ensemble, engines.PA])
+def test_de_move_is_reachable(cls):
+    """The differential-evolution share of the ensemble samplers' within-rung
+    moves is on by default in Julia; `0` is the way back to the stretch-only
+    kernel, and a field the client does not declare cannot be passed at all."""
+    assert cls(de_move=0).options() == {"de_move": 0}
+    assert cls(de_move=0.3).options() == {"de_move": 0.3}
+    assert cls().options() == {}
