@@ -758,6 +758,15 @@ class JobResult:
         return float(v) if isinstance(v, (int, float)) else None
 
     @property
+    def provenance(self) -> dict[str, Any]:
+        """What produced the fit: `engine`, `nereus_version`, `nereus_commit`
+        (None unless Nereus ran from a git checkout) and `priors` (parameter ->
+        `{family, fixed, lo, hi, ...hyperparameters}`; a fixed parameter is
+        `{family: "fixed", fixed: True, value}`). Empty for a summary written
+        before this block existed."""
+        return self.raw.get("provenance") or {}
+
+    @property
     def n_planets_posterior(self):
         """Occupancy over planet count for a trans-dim run; None if fixed-dim."""
         return self.raw.get("n_planets_posterior")
