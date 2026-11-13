@@ -890,7 +890,8 @@ and `e` and `omega` come back as derived columns of the same names. Where $\rho_
 is not a sampled parameter (it comes from `M_s` and `R_s`, or is fixed) the planet
 also samples `eta_k<k>` (rad), its coordinate along the curve of constant $g$, and
 `rho_s` is not sampled at all. With `use_rho_s=True` and a free `rho_s` prior, the first
-eligible planet samples `rho_circ_k1` alone and `rho_s` is derived from it; later
+eligible planet samples `rho_circ_k1` in place of `rho_s` (its eccentricity coordinates
+stay sampled) and `rho_s` is derived from it; later
 planets sample `rho_circ_k<k>` and `eta_k<k>`. So with free e the sampled name is
 `rho_circ_k1`, not `rho_s`. The prior on `rho_s` still goes in `priors`: Nereus carries
 it through the change of variables, and `rho_circ_k<k>` and `eta_k<k>` themselves take
