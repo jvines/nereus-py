@@ -44,6 +44,8 @@ _MODEL_KW = (
     "stability",         # "none" | "amd" | "gladman"
     "R_s",               # stellar radius (R_sun)
     "M_s",               # stellar mass (M_sun)
+    "density",           # "rho_circ" (default: a transiting planet with free e
+                         # samples rho_circ = rho_star g^3) | "rho_star" (opt out)
     "phot_trend_order",
     "as_names",          # names for relative-astrometry imagers
     "sharing",           # instrument parameter sharing groups
