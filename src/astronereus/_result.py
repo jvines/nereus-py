@@ -116,6 +116,13 @@ _UNITS = {
     "a": "AU", "M_sec": "M_sun", "M_pri": "M_sun", "M_s": "M_sun",
     "plx": "mas",
     "rho_s": "rho_sun",             # sampled as rho_star / rho_sun (1.4098 g/cm3, from the nominal M_sun and R_sun)
+    # density="rho_circ" (Nereus's default for a transiting planet with free e):
+    # the circular-equivalent density rho_star g^3, g = (1 + e sin w)/sqrt(1 - e^2),
+    # in the same solar units, and eta, the orbit's coordinate on its ellipse of
+    # constant g -- not an orbital angle, and its seam is at e = 1, where the
+    # density vanishes, so it never wraps across a posterior. rho_s and the
+    # e-coordinates come back as derived columns of the same names.
+    "rho_circ": "rho_sun", "eta": "rad",
     "Tp": "BJD", "Tc": "BJD", "T14": "d",
     "sesinw": "", "secosw": "", "esinw": "", "ecosw": "", "ecc": "",
     "b": "", "rr": "", "q1": "", "q2": "",
