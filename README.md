@@ -4,7 +4,7 @@ Python client for [Nereus](https://github.com/jvines/Nereus.jl), a Julia package
 Bayesian orbit inference: radial velocities, transits, absolute and relative
 astrometry, Rossiter-McLaughlin, Doppler tomography, TTVs, spectroscopic binaries
 and trans-dimensional planet counts, alone or jointly. This page documents
-astronereus 0.4.36 against Nereus 0.8.8. Source:
+astronereus 0.4.39 against Nereus 0.9.0. Source:
 [jvines/nereus-py](https://github.com/jvines/nereus-py); licence:
 [LICENSE](https://github.com/jvines/nereus-py/blob/main/LICENSE).
 
@@ -170,7 +170,7 @@ with astronereus.session() as s:
 ```
 
 ```
-{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.8.8', 'pong': True}
+{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.0', 'pong': True}
 ```
 
 Everything the module-level functions do is also a method on the session
@@ -1909,7 +1909,7 @@ cfg = {
 }
 r = astronereus.run_job(cfg)           # or s.run_job(cfg) inside a session
 print(r)
-# <JobResult status=ok log_z=-164.61 elapsed=20s 0 params 1 figures>
+# <JobResult status=ok log_z=-164.61 elapsed=20s 7 params 1 figures>
 P = r.raw["fitted"]["parameters"]["P_k1"]
 print(P["value"], P["err_lo"], P["err_hi"], P["unit"])
 # 11.989 0.0165 0.0157 d
