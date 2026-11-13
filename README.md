@@ -45,6 +45,7 @@ with Gaia DR4. It is saved with its output, as run with astronereus 0.4.38.
 - [Trans-dimensional fits](#trans-dimensional-fits)
 - [Results](#results)
 - [Job configs (`run_job`)](#job-configs-run_job)
+- [Known limitations](#known-limitations)
 
 ## Install
 
@@ -375,11 +376,14 @@ and `columns=[...]` restricts the columns.
 
 ```python
 import lightkurve as lk
-lcs = lk.search_lightcurve("TOI-700", mission="TESS").download_all()
+lcs = lk.search_lightcurve("TOI-700", mission="TESS", author="SPOC").download_all()
 tr = Transit.from_lightkurve(lcs)                  # needs lightkurve
 ```
 
-Accepts a `LightCurve` or a `LightCurveCollection`. NaN cadences are dropped, flux is
+Restrict the search to one pipeline (`author="SPOC"`): without it the collection can
+include high-level science products from other authors (DIAMANTE, for one), which
+`download_all` may fail to read as light curves. Accepts a `LightCurve` or a
+`LightCurveCollection`. NaN cadences are dropped, flux is
 divided by its median (`normalize=True`), and each sector gets its own instrument name
 (`TESS_s1`, `TESS_s2`, ...) so it has its own jitter. Pass
 `per_sector=False, instrument="TESS"` to pool them deliberately.
@@ -867,15 +871,32 @@ with astronereus.session() as s:
 print(r.params)
 ```
 
-`use_rho_s=True` samples the stellar density (`rho_s`, solar units) and derives the transit's
-$a/R_\star$ from it and the period, as a job config's `parametrization.use_rho_s` does; the prior
-goes in `priors`, e.g. `{"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11, "lo": 0.1,
+`use_rho_s=True` puts a prior on the stellar density (`rho_s`, solar units) and derives the
+transit's $a/R_\star$ from it and the period, as a job config's `parametrization.use_rho_s`
+does; the prior goes in `priors`, e.g. `{"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11, "lo": 0.1,
 "hi": 10.0}}`. It needs a `Transit` channel, and `fit_transit(..., use_rho_s=True)` takes the same
 keyword. The stellar keywords of a job's `star` block reach the derived table as keywords too:
 `M_s`, `R_s`, `T_eff`, `J_mag`, `K_mag`, `Ab`, `sigma_M_s`, `sigma_R_s`, `sigma_T_eff`
 (`fit_rv`, `fit_transit`, `fit_astrometry`, `fit_joint`). `Transit(use_rho_s=...)` and
 `Transit(rho_star=...)` were never read and now raise. For every other `model` option, use the
 job config below.
+
+**What is sampled for the density.** Since Nereus 0.9.0 a transiting planet with free
+eccentricity (both eccentricity coordinates sampled) is fitted in the photo-eccentric
+parametrization, `density="rho_circ"`, the default. The chain samples the
+circular-equivalent density `rho_circ_k<k>` (solar units, $\rho_\star g^3$ with
+$g = (1 + e\sin\omega)/\sqrt{1 - e^2}$), which is what a transit duration measures,
+and `e` and `omega` come back as derived columns of the same names. Where $\rho_\star$
+is not a sampled parameter (it comes from `M_s` and `R_s`, or is fixed) the planet
+also samples `eta_k<k>` (rad), its coordinate along the curve of constant $g$, and
+`rho_s` is not sampled at all. With `use_rho_s=True` and a free `rho_s` prior, the first
+eligible planet samples `rho_circ_k1` alone and `rho_s` is derived from it; later
+planets sample `rho_circ_k<k>` and `eta_k<k>`. So with free e the sampled name is
+`rho_circ_k1`, not `rho_s`. The prior on `rho_s` still goes in `priors`: Nereus carries
+it through the change of variables, and `rho_circ_k<k>` and `eta_k<k>` themselves take
+no prior. `density="rho_star"` (a keyword of `fit_transit`, `fit_joint` and the other
+`fit_*`) opts out and samples `rho_s` and the eccentricity coordinates directly, as
+runtimes before 0.9.0 did. A fit with e fixed has nothing to reparametrize.
 
 Both datasets share one orbit: `P_k1`, `phic_k1` and the eccentricity vector, with
 `K_k1` for the RV amplitude and `rr_k1`, `b_k1` for the transit. Each instrument keeps
@@ -1516,6 +1537,7 @@ from your data dict.
 | `inc_k1`, `Omega_k1` | inclination, node (rad), astrometric planets | sine, uniform on `[0, 2 pi]` |
 | `M_sec_k1`, `a_k1` | companion mass (M_sun), semi-major axis (AU), by parametrization | log-uniform |
 | `plx`, `M_pri` | parallax (mas), primary mass (M_sun) in astrometric fits | set these yourself, see [Astrometry](#astrometry) |
+| `rho_circ_k<k>`, `eta_k<k>` | circular-equivalent stellar density (solar units) and the orbit's coordinate along its curve of constant density factor (rad), for a transiting planet with free e; they replace `rho_s` and the eccentricity coordinates as sampled parameters (`density="rho_star"` restores those) | none to give: derived from the priors on `rho_s` and e, see [RV and transit together](#rv-and-transit-together) |
 | `lambda_k1`, `v_sin_i_star` | spin-orbit angle (rad), projected rotation (m/s) in RM fits | uniform `[-pi, pi]`, log-uniform |
 | `offset_<inst>`, `jitter_<inst>`, `q1_<inst>`, `q2_<inst>`, `rho_s` | photometry offset, jitter, limb darkening, stellar density | see [Transits](#transits) |
 
@@ -1712,6 +1734,8 @@ parameters and figures.
 | `r.derived` | derived physical quantities, a `Params` table |
 | `r.table(fitted=True, derived=True, diagnostics=False)` | both tables, plus sampler health with `diagnostics=True` |
 | `r.log_z` | log evidence, or `None` (NaN for samplers without one) |
+| `r.stopped` | how the sampler ended: `"steps"`, `"converged"`, `"interrupted"`, `"requested"`, `"max_seconds"` or `"max_evals"`; `None` for an engine that does not report it |
+| `r.provenance` | what produced the fit, from the summary's `provenance` block: `engine`, `nereus_version`, `nereus_commit` (`None` unless Nereus ran from a git checkout) and `priors` (per parameter: `family`, `fixed`, bounds and hyperparameters); `{}` for a summary written before the block existed |
 | `r.n_planets_posterior` | planet-count posterior, trans-dimensional fits only |
 | `r.diagnostics` | `Diagnostics`: ladder acceptance, R-hat and ESS |
 | `r.fit_health` | pass/fail checks on the run |
@@ -1937,3 +1961,29 @@ Differences from `fit_*`:
 `astronereus.run_job` starts a process-wide daemon on first use and reuses it; `with
 astronereus.session() as s: s.run_job(cfg)` makes the lifetime explicit, which is the
 better form for several jobs in a row.
+
+## Known limitations
+
+These routes exist in the Python API but do not work in this release. Use the route
+given instead.
+
+- `fit_rm`, `fit_ttv` and `fit_binary` fail: the job they send carries no priors, or
+  `PriorSpec` objects where Nereus wants dicts. Run Rossiter-McLaughlin, TTV and
+  spectroscopic-binary fits through `s.run_job(cfg)` with a job config, as in the
+  examples above.
+- `fit_rv(noise=[...])` fails (a dict cannot be converted to a noise model). Put
+  `noise_models` in the `model` block of a `run_job` config ([Trends and noise
+  models](#trends-and-noise-models)).
+- `fit_rv(trend_order=1)` and `RV(trend_order=..., jitter=...)` passed to `fit_rv` are
+  silently dropped. Use `fit_joint`, or `"trend_order"` in the `model` block of a
+  `run_job` config.
+- `s.run_job("cfg.json")` with a file path fails. Read the file and pass the dict:
+  `s.run_job(json.load(open("cfg.json")))`.
+- `engines.MAP` leaves `m.params` empty. Read `m.raw["map"]` and `m.log_z`.
+- `s.detect.transits(method="bls")` fails (the method must be a Symbol on the Julia
+  side, and a string is sent). Call it without `method`, which runs the box-least-squares
+  search.
+- `s.detect.lc_periodogram` is not wired, and there is no `s.diagnostics.loo` or
+  `s.diagnostics.ppc`. Read `r.loo` and `r.ppc` from the fit result.
+- `planets=[0, 1, 2]` without `transdim=True` is a fixed two-planet fit, not a
+  search ([Trans-dimensional fits](#trans-dimensional-fits)).
