@@ -117,8 +117,8 @@ _engine_of(payload) = _j(get(payload, :engine, nothing))
 
 # A figure manifest is built by scanning `<output_dir>/plots` for PNGs, so it
 # reports EVERY png sitting there -- including ones a previous fit into the
-# same output_dir left behind. That turned `plots = ["corner"]` into a result
-# advertising three figures, two of them stale, with no way for the caller to
+# same output_dir left behind. That turned a fit asking for one figure into a
+# result advertising three, two of them stale, with no way for the caller to
 # tell which.
 #
 # The fix is a before/after snapshot, NOT a "newer than now" timestamp test:

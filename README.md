@@ -1812,10 +1812,17 @@ Request figures with `plots=[...]` on the fit. Without it nothing is drawn.
 r = s.fit_rv(rv, planets=1, output_dir="out/res",
              priors={"P_k1": {"type": "loguniform", "lo": 8, "hi": 16}},
              plots=["corner", "rv_phasefold"])
-list(r.figures)               # ['corner', 'models/RV_phasefold_K1']
-r.figures["corner"]           # a Figure
-r.figures.corner              # the same, by attribute
+list(r.figures)               # ['corner_K1', 'models/RV_phasefold_K1']
+r.figures["corner_K1"]        # a Figure
+r.figures.corner_K1           # the same, by attribute
 ```
+
+`"corner"` draws one corner per planet, of that planet's parameters
+(`corner_K1`, `corner_K2`, ...), and one of the noise model -- jitters, GP
+hyperparameters and the other noise-model parameters -- as `corner_noise`, when
+the model has at least two of them (a single-instrument fit with no GP has one
+jitter, so no `corner_noise`). Offsets, trends and stellar parameters are in no
+corner. There is no all-parameter corner.
 
 `r.figures` is a mapping from a logical name to a `Figure`, which is a `pathlib.Path`
 that also renders itself in a notebook. In an attribute name `/`, `.` and `-` become
