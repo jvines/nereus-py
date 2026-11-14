@@ -57,12 +57,40 @@ def test_transit_phase_is_an_angle():
     assert not Estimate(tight, "phic_k1").multimodal
 
 
+def test_the_other_anchors_come_back_derived():
+    """Under the default anchor (phic) Nereus reports Tp, and Mo at the
+    reference epoch in degrees, per draw: a time and an angle that wraps."""
+    from astronereus._result import _unit_of
+    assert _unit_of("Tp_k1") == "BJD"
+    assert _unit_of("Mo_deg_k1") == "deg"
+    wrapped = {"median": 10.0, "lo16": 2.0, "hi84": 355.0}
+    tight = {"median": 182.0, "lo16": 181.0, "hi84": 183.5}
+    assert Estimate(wrapped, "Mo_deg_k1").multimodal
+    assert not Estimate(tight, "Mo_deg_k1").multimodal
+
+
 def test_stellar_density_is_in_solar_units():
     """rho_s is sampled as rho_star/rho_sun; labelled g/cm3, a 0.532 rho_sun
     star (0.750 g/cm3) read as 0.532 g/cm3. Nereus tags it "rho_sun"."""
     from astronereus._result import _unit_of
     assert _unit_of("rho_s") == "rho_sun"
     assert _unit_of("rho_s", {"unit": "rho_sun"}) == "rho_sun"
+
+
+def test_circular_equivalent_density_is_in_solar_units():
+    """density="rho_circ" samples rho_circ_k<n> = rho_star g^3 in the units of
+    rho_s, and eta_k<n> in radians; eta is not a wrapping orbital angle."""
+    from astronereus._result import _unit_of
+    assert _unit_of("rho_circ_k1") == "rho_sun"
+    assert _unit_of("eta_k2") == "rad"
+    tight = {"median": 1.09, "lo16": 1.00, "hi84": 1.16}
+    assert not Estimate(tight, "rho_circ_k1").multimodal
+
+
+def test_density_reaches_julia():
+    """`density` is a model keyword: the whitelist forwards it to fit_*."""
+    from astronereus import _fit
+    assert "density" in _fit._MODEL_KW
 
 
 def test_every_estimate_row_has_six_columns():

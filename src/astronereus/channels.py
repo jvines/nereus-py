@@ -14,7 +14,7 @@ than an enum of named combinations.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal, Mapping, Sequence
 
 
@@ -198,24 +198,78 @@ class RV(Channel):
 class Transit(Channel):
     """Transit photometry.
 
-    Set `gravity_darkening=True` for the oblate/von-Zeipel model, which gives
-    stellar inclination i* separately from lambda — that is GD_SOURCE, a
-    distinct source flag, not a cosmetic option.
+    Every option below reaches the model (`fit_transit`, `fit_joint`, and
+    `fit_rm` for `exposure_time`), or raises: nothing is accepted and ignored.
+
+    - `exposure_time` (seconds; one value, or `{instrument: seconds}`) turns on
+      finite-exposure supersampling, for cadences longer than 3 minutes (the
+      sub-sample count follows from it, one per minute up to 30). Left unset the
+      model is instantaneous, which is right for 2-minute data and wrong for
+      30-minute data.
+    - `dilution` (`{instrument: D}`, D the third-light fraction; a number is a
+      fixed value, a prior dict a sampled one) and `jitter` (a number or prior
+      dict for every instrument, or `{instrument: ...}`) set the priors on
+      `dilution_<instrument>` and `jitter_<instrument>`. Left at the defaults
+      (no third light, a modified-Jeffreys jitter) they change nothing; giving
+      the same parameter in the fit's `priors` as well is an error.
+    - `limb_darkening` is "quadratic" or "kipping": one model, sampled in
+      Kipping's (q1, q2). The other laws do not exist in Nereus and raise.
+    - `gravity_darkening=True` and `supersample` (an explicit sub-sample count)
+      are not implemented on the typed route and raise; use a job config for
+      gravity darkening, and `exposure_time` for supersampling.
     """
     source = "PM"
     data: Mapping[str, Mapping[str, Sequence[float]]] = field(default_factory=dict)
-    limb_darkening: Literal["quadratic", "kipping", "nonlinear", "linear"] = "quadratic"
-    rho_star: Any = None
-    use_rho_s: bool = True
+    limb_darkening: Literal["quadratic", "kipping"] = "quadratic"
     gravity_darkening: bool = False
     supersample: int | None = None
-    exposure_time: float | None = None
+    exposure_time: float | Mapping[str, float] | None = None
     jitter: Any = "default"
-    dilution: Mapping[str, float] | None = None
+    dilution: Mapping[str, Any] | None = None
+    # REMOVED, kept only so passing them is an error rather than a silent no-op.
+    # `use_rho_s` (default True here) and `rho_star` were carried to the daemon
+    # and never read by Nereus, so they changed nothing. The stellar density is a
+    # property of the fit, not of one light curve: `fit_joint(..., use_rho_s=True,
+    # priors={"rho_s": ...})` or `fit_transit(...)` with the same keywords. An
+    # InitVar is not a field, so it never reaches `to_wire`.
+    rho_star: InitVar[Any] = None
+    use_rho_s: InitVar[Any] = None
+
+    def __post_init__(self, rho_star, use_rho_s):
+        if rho_star is not None or use_rho_s is not None:
+            raise TypeError(
+                "Transit no longer takes `use_rho_s` or `rho_star`: they were "
+                "accepted and never read. Sample the stellar density with "
+                "`fit_joint(..., use_rho_s=True)` or `fit_transit(..., "
+                "use_rho_s=True)` and put its prior (solar units) in "
+                "`priors={\"rho_s\": {\"type\": \"normal\", \"mu\": ..., "
+                "\"sigma\": ..., \"lo\": ..., \"hi\": ...}}`.")
+        if self.limb_darkening not in ("quadratic", "kipping"):
+            raise ValueError(
+                f"Transit(limb_darkening={self.limb_darkening!r}): the transit "
+                "model is quadratic, sampled in Kipping's (q1, q2); \"quadratic\" "
+                "and \"kipping\" are the same model. Other laws are not "
+                "implemented.")
+        if self.gravity_darkening:
+            raise ValueError(
+                "Transit(gravity_darkening=True): the gravity-darkened transit "
+                "(planet mode PM_GD) is a job-config option, not built by the "
+                "typed fit_* functions.")
+        if self.supersample is not None:
+            raise ValueError(
+                "Transit(supersample=...): there is no explicit sub-sample "
+                "count. Set exposure_time (seconds) and the count follows from "
+                "it.")
+        ex = self.exposure_time
+        if ex is not None:
+            vals = ex.values() if isinstance(ex, Mapping) else [ex]
+            if not all(isinstance(v, (int, float)) and v > 0 for v in vals):
+                raise ValueError("Transit(exposure_time=...) must be positive "
+                                 "seconds, one number or {instrument: seconds}")
 
     @classmethod
     def from_file(cls, path, *, limb_darkening="quadratic", rho_star=None,
-                  use_rho_s=True, gravity_darkening=False, supersample=None,
+                  use_rho_s=None, gravity_darkening=False, supersample=None,
                   exposure_time=None, jitter="default", dilution=None,
                   **read_kw):
         """`Transit` straight from a light curve; see `read_photometry`."""
@@ -234,7 +288,7 @@ class Transit(Channel):
 
     @classmethod
     def from_table(cls, table, *, limb_darkening="quadratic", rho_star=None,
-                   use_rho_s=True, gravity_darkening=False, supersample=None,
+                   use_rho_s=None, gravity_darkening=False, supersample=None,
                    exposure_time=None, jitter="default", dilution=None, **kw):
         """`Transit` from an in-memory table; see `RV.from_table`. Pass
         `normalize=True` for a light curve still in electrons per second."""
@@ -244,7 +298,7 @@ class Transit(Channel):
     @classmethod
     def from_arrays(cls, t, flux, flux_err, *, instrument="TESS",
                     time_offset="auto", rename=None, limb_darkening="quadratic",
-                    rho_star=None, use_rho_s=True, gravity_darkening=False,
+                    rho_star=None, use_rho_s=None, gravity_darkening=False,
                     supersample=None, exposure_time=None, jitter="default",
                     dilution=None):
         """`Transit` from three bare arrays."""
@@ -256,7 +310,7 @@ class Transit(Channel):
     @classmethod
     def from_lightkurve(cls, lc, *, normalize=True, per_sector=True,
                         instrument=None, limb_darkening="quadratic",
-                        rho_star=None, use_rho_s=True, gravity_darkening=False,
+                        rho_star=None, use_rho_s=None, gravity_darkening=False,
                         supersample=None, exposure_time=None, jitter="default",
                         dilution=None):
         """`Transit` from a lightkurve `LightCurve` or `LightCurveCollection`.
@@ -298,12 +352,24 @@ class Astrometry(Channel):
         gost={"values": {"t": ..., "psi": ..., "parallax_factor": ...}}
 
     RV + HGCA is `fit_joint(RV(...), Astrometry(hgca=..., gost=...), ...)`.
+
+    `hip_scans` is the Hipparcos scan geometry the HGCA Hipparcos proper
+    motion, and the Hipparcos position in its Hipparcos-Gaia difference, are
+    fitted through, as the catalogue measured them. Left as None, Nereus uses
+    the IAD's own scans when `iad` holds Hipparcos data, and otherwise fetches
+    them by the HGCA row's `hip_id` (cached; a ~350 MB bundle on first use):
+
+        hip_scans=False                  # none: instantaneous reflex, warned
+        hip_scans={"hip_id": 85653}
+        hip_scans={"values": {"t": ..., "psi": ..., "parallax_factor": ...,
+                              "abscissa_err": ...}}
     """
     source = "AS"
     iad: Any = None
     hgca: Any = None
     gost: Any = None
     relast: Any = None
+    hip_scans: Any = None
 
     @classmethod
     def from_relast_file(cls, path, *, iad=None, hgca=None, gost=None,

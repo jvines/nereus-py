@@ -40,10 +40,12 @@ _MODEL_KW = (
     "science",           # run the post-fit block (ppc/loo/tables/...); default True
     "output",            # the JOB_CONFIG `output` block: ppc_n_draws, loo, ...
     "parametrization",   # "a_driven" | "K_driven" | "M_sec_driven"
-    "time_anchor",       # "Mo" | "Tp" | "Tc" | "phic" (transit phase)
+    "time_anchor",       # "phic" (transit phase; the default from Nereus 0.9.0) | "Mo" | "Tp" | "Tc"
     "stability",         # "none" | "amd" | "gladman"
     "R_s",               # stellar radius (R_sun)
     "M_s",               # stellar mass (M_sun)
+    "density",           # "rho_circ" (default: a transiting planet with free e
+                         # samples rho_circ = rho_star g^3) | "rho_star" (opt out)
     "phot_trend_order",
     "as_names",          # names for relative-astrometry imagers
     "sharing",           # instrument parameter sharing groups
@@ -53,13 +55,41 @@ _MODEL_KW = (
 )
 
 
+# The stellar keywords that feed only the derived table (Nereus
+# `_STAR_DERIVED_KEYS`; `M_s` and `R_s` are model keywords and are in
+# `_MODEL_KW`): T_eff (K), J_mag, K_mag, Ab (Bond albedo) and the 1-sigma of M*,
+# R* and T_eff. Julia's fit_rv, fit_transit, fit_astrometry and fit_joint read
+# them; fit_rm, fit_ttv and fit_binary do not (fit_rm and fit_binary take a
+# `star` dict instead), so those reject them. tests/test_star_keywords.py checks
+# this tuple against Nereus.
+_STAR_KW = ("T_eff", "J_mag", "K_mag", "Ab",
+            "sigma_M_s", "sigma_R_s", "sigma_T_eff")
+
+
+def _gaia_extra(gaia_id, name, extra: dict | None = None) -> dict | None:
+    """`gaia_id` / `name` for the wire, only when given: a runtime that predates
+    them has no such keyword on Julia's fit_astrometry / fit_joint."""
+    out = dict(extra or {})
+    if gaia_id is not None:
+        if isinstance(gaia_id, bool) or not isinstance(gaia_id, (int, str)):
+            raise TypeError("gaia_id must be a Gaia DR3 source_id: an int, a "
+                            f"string of digits, or 'Gaia DR3 <id>'; got {gaia_id!r}")
+        out["gaia_id"] = gaia_id
+    if name is not None:
+        if not isinstance(name, str) or not name.strip():
+            raise TypeError(f"name must be a non-empty string; got {name!r}")
+        out["name"] = name
+    return out or None
+
+
 def _run(session, op: str, channels: Sequence[Channel], *, planets,
-         engine, stopping, output_dir, priors=None,
-         extra: dict[str, Any] | None = None, **model_kw):
-    bad = set(model_kw) - set(_MODEL_KW)
+         engine, stopping, output_dir, priors=None, stop_file=None,
+         extra: dict[str, Any] | None = None, star: bool = False, **model_kw):
+    known = _MODEL_KW + (_STAR_KW if star else ())
+    bad = set(model_kw) - set(known)
     if bad:
         raise TypeError(
-            f"unknown keyword(s) {sorted(bad)}. Known: {', '.join(_MODEL_KW)}")
+            f"unknown keyword(s) {sorted(bad)}. Known: {', '.join(known)}")
     payload = {
         "priors": priors or {},
         "op": op,
@@ -75,6 +105,10 @@ def _run(session, op: str, channels: Sequence[Channel], *, planets,
         "stopping": (stopping.to_wire() if stopping else None),
         "output_dir": str(output_dir) if output_dir else None,
     }
+    if stop_file is not None:
+        # A path whose appearance ends the run at the last recorded step (see
+        # `Stopping`). With an output_dir Julia watches <output_dir>/STOP anyway.
+        payload["stop_file"] = str(stop_file)
     if extra:
         payload.update(extra)
     payload.update({k: v for k, v in model_kw.items() if v is not None})
@@ -120,7 +154,7 @@ def replot(*channels: Channel, output_dir, plots, priors: dict | None = None,
 def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
            jitter: Any = "default", trend_order: int = 0,
            noise: Any = None, engine: _eng.Engine | None = None,
-           stopping: Stopping | None = None, output_dir=None,
+           stopping: Stopping | None = None, stop_file=None, output_dir=None,
            priors: dict | None = None,
            session=None, **model_kw) -> Any:
     """Fit radial velocities alone.
@@ -131,32 +165,48 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
     ch = rv if isinstance(rv, RV) else RV(data=rv, jitter=jitter,
                                           trend_order=trend_order)
     return _run(_sess(session), "fit_rv", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir,
-                priors=priors, **model_kw, extra={"noise": noise})
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
+                priors=priors, star=True, **model_kw, extra={"noise": noise})
 
 
 def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
+                use_rho_s: bool = False,
                 limb_darkening: str = "quadratic", rho_star: Any = None,
                 gravity_darkening: bool = False, engine: _eng.Engine | None = None,
-                stopping: Stopping | None = None, output_dir=None,
+                stopping: Stopping | None = None, stop_file=None, output_dir=None,
                 priors: dict | None = None,
                 session=None, **model_kw) -> Any:
     """Fit transit photometry alone.
 
-    `gravity_darkening=True` uses the oblate von Zeipel/Barnes model, which
-    yields stellar inclination i* separately from lambda.
+    `use_rho_s=True` samples the stellar density (`rho_s`, solar units) and
+    derives a/R★ from it and the period, as for `fit_joint`; the prior goes in
+    `priors["rho_s"]`. `rho_star` was never read and now raises: use
+    `use_rho_s` and that prior.
+
+    The other photometry options (`exposure_time`, `dilution`, `jitter`) are
+    those of the `Transit` channel; pass a `Transit` for them. `limb_darkening`
+    must be "quadratic" or "kipping" (one model), and `gravity_darkening=True`
+    raises: the gravity-darkened transit is a job-config option.
     """
+    if rho_star is not None:
+        raise TypeError(
+            "fit_transit: `rho_star` was never read. Pass use_rho_s=True and "
+            "the density prior (solar units) as priors={\"rho_s\": {...}}")
     ch = phot if isinstance(phot, Transit) else Transit(
-        data=phot, limb_darkening=limb_darkening, rho_star=rho_star,
+        data=phot, limb_darkening=limb_darkening,
         gravity_darkening=gravity_darkening)
+    extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_transit", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
+                priors=priors, star=True, extra=extra, **model_kw)
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
-                   planets: int = 1,
+                   hip_scans=None,
+                   planets: int = 1, gaia_id: int | str | None = None,
+                   name: str | None = None,
                    engine: _eng.Engine | None = None,
-                   stopping: Stopping | None = None, output_dir=None,
+                   stopping: Stopping | None = None, stop_file=None, output_dir=None,
                    priors: dict | None = None,
                    session=None, **model_kw) -> Any:
     """Fit absolute or relative astrometry alone (no RV).
@@ -164,10 +214,27 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
     `priors["plx"]` must be informative: the abscissae constrain a0 ~ M_sec * plx,
     so mass and parallax are degenerate without it. `priors["M_pri"]` sets the
     primary mass. Both are priors; there is no keyword for either.
+
+    `gaia_id` (the star's Gaia DR3 source_id: an int, a string of digits or
+    "Gaia DR3 <id>") or `name` (any Simbad-resolvable name, looked up to its
+    DR3 source_id; `gaia_id` wins if both are given) make Nereus query the Gaia
+    DR3 parallax at run time and use it as the default `plx` prior, a Gaussian
+    truncated at +-10 sigma on the raw catalogue value (no zero-point
+    correction). It ranks ahead of the HGCA parallax and behind your own
+    `priors["plx"]`, in which case nothing is queried. If the query fails the
+    fit stops rather than falling back. Where the value came from is in
+    `summary["star"]["gaia"]`. Needs a runtime with the Gaia lookup (Nereus
+    newer than 0.8.10).
+
+    `hip_scans`: the Hipparcos scans the HGCA Hipparcos epoch is fitted
+    through; see `Astrometry`. None lets Nereus take the IAD's or fetch them
+    by the HGCA row's `hip_id`; False opts out.
     """
-    ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast)
+    ch = Astrometry(iad=iad, hgca=hgca, gost=gost, relast=relast,
+                    hip_scans=hip_scans)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
+                extra=_gaia_extra(gaia_id, name), star=True, **model_kw)
 
 
 def fit_rm(rv_in_transit, *, phot,
@@ -261,7 +328,9 @@ def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
 # --- several techniques together ---------------------------------------------
 
 def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
-              engine: _eng.Engine | None = None, stopping: Stopping | None = None,
+              use_rho_s: bool = False,
+              gaia_id: int | str | None = None, name: str | None = None,
+              engine: _eng.Engine | None = None, stopping: Stopping | None = None, stop_file=None,
               output_dir=None, priors: dict | None = None,
               session=None, **model_kw) -> Any:
     """Fit several techniques simultaneously.
@@ -273,6 +342,19 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
 
     One operation for "fit these together", rather than a named function per
     combination — the Julia model composes source flags for exactly this reason.
+
+    `use_rho_s=True` samples the stellar density (`rho_s`, solar units) and
+    derives the transit's a/R★ from it and the period, as a run_job config's
+    `parametrization.use_rho_s` does. It needs a `Transit` channel and raises
+    without one. Put the prior on it in `priors`, e.g.
+    `priors={"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11,
+    "lo": 0.1, "hi": 10.0}}`, with `M_s` / `R_s` for the derived table. This
+    keyword is the switch; `Transit` takes neither `use_rho_s` nor `rho_star`
+    (they were never read) and raises if given them.
+
+    `gaia_id` / `name` (with an `Astrometry` channel) query the Gaia DR3
+    parallax at run time for the default `plx` prior; see `fit_astrometry`.
+    Without astrometry, or with your own `priors["plx"]`, nothing is queried.
     """
     if not channels:
         raise ValueError("fit_joint needs at least one channel; for a single "
@@ -281,8 +363,16 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
         raise ValueError(
             f"fit_joint with one channel — use the dedicated entry point for "
             f"{type(channels[0]).__name__} instead, it has a clearer signature")
+    if use_rho_s and not any(isinstance(c, Transit) for c in channels):
+        raise ValueError(
+            "fit_joint: use_rho_s samples the stellar density through the "
+            "transit a/R★, so it needs a Transit channel among the channels")
+    # Sent only when asked for: a runtime that predates the keyword has no
+    # `use_rho_s` on Julia's fit_joint, and `False` is its default anyway.
+    extra = _gaia_extra(gaia_id, name, {"use_rho_s": True} if use_rho_s else None)
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
+                extra=extra, star=True, **model_kw)
 
 
 def _sess(session):

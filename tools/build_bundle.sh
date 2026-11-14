@@ -31,7 +31,7 @@ set -euo pipefail
 cleanup() { [ -n "${KEEP_WORK:-}" ] || rm -rf "${WORK:-}"; }
 trap cleanup EXIT
 
-JULIA_VER="${JULIA_VER:-1.11.9}"
+JULIA_VER="${JULIA_VER:-1.13.3}"
 NEREUS_JL="${NEREUS_JL:-$(cd "$(dirname "$0")/../../Nereus.jl" && pwd)}"
 OUT_DIR="${OUT_DIR:-$PWD/dist}"
 WORK="${WORK:-$(mktemp -d)}"
@@ -83,6 +83,13 @@ git -C "$NEREUS_JL" archive HEAD | tar -x -C "$BUNDLE/depot/dev/Nereus"
 [ -f "$BUNDLE/depot/dev/Nereus/Project.toml" ] || {
   echo "git archive produced no Project.toml — is $NEREUS_JL a git repo?" >&2; exit 1; }
 echo "    staged $(find "$BUNDLE/depot/dev/Nereus" -type f | wc -l | tr -d ' ') tracked files"
+# Compile the figures into the bundle's Nereus image (Nereus.jl's
+# src/plotting/precompile.jl). Without them a fit's first plot set compiles
+# for about two minutes on the user's machine. It is a preference, off by
+# default, so a developer's own precompile skips it. The file ships with the
+# project, and the runtime loads the project from this directory, so the
+# image's preferences match at run time and nothing recompiles.
+printf '[Nereus]\nprecompile_plots = true\n' > "$BUNDLE/depot/dev/Nereus/LocalPreferences.toml"
 
 echo "==> instantiating + precompiling (this is the slow part)"
 # JULIA_CPU_TARGET: multiversioned native code so the depot runs on older CPUs

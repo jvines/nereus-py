@@ -117,8 +117,8 @@ _engine_of(payload) = _j(get(payload, :engine, nothing))
 
 # A figure manifest is built by scanning `<output_dir>/plots` for PNGs, so it
 # reports EVERY png sitting there -- including ones a previous fit into the
-# same output_dir left behind. That turned `plots = ["corner"]` into a result
-# advertising three figures, two of them stale, with no way for the caller to
+# same output_dir left behind. That turned a fit asking for one figure into a
+# result advertising three, two of them stale, with no way for the caller to
 # tell which.
 #
 # The fix is a before/after snapshot, NOT a "newer than now" timestamp test:
@@ -207,6 +207,17 @@ function _fit_dispatch(op::String, payload)
     end
 
     f = getfield(mod, Symbol(op))
+    # `stopping` used to be dropped here without a word (it is in _ENVELOPE, and
+    # nothing forwarded it), so Stopping(max_seconds=...) ran unbounded. Hand it
+    # to the fit functions that declare it; for those that do not (fit_rm,
+    # fit_ttv, fit_binary) say so instead of ignoring it.
+    stp = get(payload, :stopping, nothing)
+    if stp !== nothing
+        any(m -> :stopping in Base.kwarg_decl(m), methods(f)) ||
+            error("$op does not take a Stopping criterion; the runtime ends it on " *
+                  "the engine's own settings. Drop `stopping=`.")
+        extra[:stopping] = _j(stp)
+    end
     _before = outdir === nothing ? Dict{String,Float64}() :
               _png_mtimes(joinpath(outdir, "plots"))
     r = if op == "fit_tomography"
@@ -226,13 +237,42 @@ function _fit_dispatch(op::String, payload)
                           n_null = Int(get(ob, "n_null", 300)),
                           output_dir = outdir)
     elseif op == "fit_joint"
+        # A bare planet COUNT becomes `_planet_spec(n)`, planets with no
+        # parameters, and build_target refuses ("planet must declare a mass
+        # parameter"). `_target_from` supplies an astrometric block itself
+        # when astrometry is present; with RV and no astrometry (RV +
+        # transit) nothing did. Same block `fit_rv` uses, taken from the RV
+        # data; the photometric parameters come from the default priors.
+        if !(planets isa NamedTuple)
+            rvi = findfirst(c -> String(get(c, "source", "")) == "RV", chs)
+            has_as = any(c -> String(get(c, "source", "")) == "AS", chs)
+            if rvi !== nothing && !has_as
+                dv = collect(values(get(chs[rvi], "data", Dict())))
+                if !isempty(dv)
+                    allt  = reduce(vcat, [collect(x.t)  for x in dv])
+                    allrv = reduce(vcat, [collect(x.rv) for x in dv])
+                    # Only P and K: they pick the K-driven mass
+                    # parametrization. Eccentricity, the time anchor
+                    # (`time_anchor=`) and the photometric parameters take
+                    # the layout's own defaults, which is what a job config
+                    # that names no planet block gets.
+                    blk = Base.invokelatest(mod.default_rv_planet, allt, allrv)
+                    planets = Base.invokelatest(mod._planet_spec, planets;
+                                  block = (P = blk.P, K = blk.K))
+                end
+            end
+        end
         Base.invokelatest(f, chs...; planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_astrometry"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
+        # `hip_scans` only when given: a runtime older than the keyword would
+        # take it as an unknown one.
+        hs = get(c, "hip_scans", nothing)
+        hkw = hs === nothing ? (;) : (; hip_scans = hs)
         Base.invokelatest(f; iad = get(c, "iad", nothing),
                           hgca = get(c, "hgca", nothing),
                           gost = get(c, "gost", nothing),
-                          relast = get(c, "relast", nothing),
+                          relast = get(c, "relast", nothing), hkw...,
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_rm"
         # fit_rm(; rv, phot, ...) is keyword-only and REQUIRES phot: the RM
@@ -245,9 +285,41 @@ function _fit_dispatch(op::String, payload)
         phi === nothing && error(
             "fit_rm: needs a Transit channel alongside the RM channel")
         rmc, phc = chs[rmi], chs[phi]
+        # fit_rm takes the photometry as a bare instrument map, so the Transit
+        # channel's options have to be folded in here. `exposure_time` is the
+        # one a photometry block has (seconds, per instrument); the others
+        # would be dropped silently, so they throw.
+        for k in ("dilution", "supersample")
+            get(phc, k, nothing) === nothing ||
+                error("fit_rm: Transit($k=...) is not supported on this route; " *
+                      "it was never read")
+        end
+        get(phc, "jitter", "default") == "default" ||
+            error("fit_rm: Transit(jitter=...) is not supported on this route; " *
+                  "set `priors[\"jitter_<instrument>\"]` in the job config")
+        Symbol(get(phc, "limb_darkening", "quadratic")) in (:quadratic, :kipping) ||
+            error("fit_rm: Transit(limb_darkening=...) other than quadratic is not implemented")
+        get(phc, "gravity_darkening", false) == false ||
+            error("fit_rm: Transit(gravity_darkening=True) is not implemented on this route")
+        phot_data = get(phc, "data", nothing)
+        ex = get(phc, "exposure_time", nothing)
+        if ex !== nothing && phot_data !== nothing
+            _ex(inst) = ex isa AbstractDict ? get(ex, inst, nothing) : ex
+            phot_data = Dict{String,Any}(
+                inst => (_ex(inst) === nothing ? blob :
+                         merge(blob, (exposure_time = _ex(inst),)))
+                for (inst, blob) in phot_data)
+        end
         Base.invokelatest(f; rv = get(rmc, "data", nothing),
-                          phot = get(phc, "data", nothing),
+                          phot = phot_data,
                           flavour = Symbol(get(rmc, "flavour", "reloaded")),
+                          planets, engine = eng, output_dir = outdir, priors = priors, extra...)
+    elseif op == "fit_transit"
+        # The whole Transit CHANNEL, not just its data: exposure_time, dilution,
+        # jitter, limb_darkening, ... ride on it, and a bare instrument map
+        # drops them. Julia's fit_transit takes either.
+        isempty(chs) && error("fit_transit: no data channel in payload")
+        Base.invokelatest(f, chs[1];
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_ttv"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]

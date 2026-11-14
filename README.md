@@ -4,7 +4,7 @@ Python client for [Nereus](https://github.com/jvines/Nereus.jl), a Julia package
 Bayesian orbit inference: radial velocities, transits, absolute and relative
 astrometry, Rossiter-McLaughlin, Doppler tomography, TTVs, spectroscopic binaries
 and trans-dimensional planet counts, alone or jointly. This page documents
-astronereus 0.4.36 against Nereus 0.8.8. Source:
+astronereus 0.4.39 against Nereus 0.9.0. Source:
 [jvines/nereus-py](https://github.com/jvines/nereus-py); licence:
 [LICENSE](https://github.com/jvines/nereus-py/blob/main/LICENSE).
 
@@ -23,6 +23,7 @@ with Gaia DR4. It is saved with its output, as run with astronereus 0.4.38.
 
 - [Install](#install)
 - [Sessions](#sessions)
+  - [Stopping a fit early](#stopping-a-fit-early)
 - [Getting data in](#getting-data-in)
 - [Pre-fit tools](#pre-fit-tools)
 - [Fit modes](#fit-modes)
@@ -44,6 +45,7 @@ with Gaia DR4. It is saved with its output, as run with astronereus 0.4.38.
 - [Trans-dimensional fits](#trans-dimensional-fits)
 - [Results](#results)
 - [Job configs (`run_job`)](#job-configs-run_job)
+- [Known limitations](#known-limitations)
 
 ## Install
 
@@ -56,7 +58,7 @@ The first call that needs Julia fetches the runtime (about 480 MB on
 
 ```
 astronereus: no Julia runtime yet -- fetching it once now.
-astronereus: fetching runtime (macos-arm64, julia 1.11.9) ...
+astronereus: fetching runtime (macos-arm64, julia 1.13.3) ...
 astronereus: unpacking ...
 astronereus: warming the runtime (one-time, a few minutes) ...
 astronereus: ready (207s)
@@ -120,12 +122,35 @@ python -c "import astronereus; astronereus.install(force=True)"
 For a classroom, fetch the bundle once and point everyone at the local copy:
 
 ```sh
-export NEREUS_BUNDLE_URL=~/nereus-runtime-1.11.9-macos-arm64.tar.zst   # path or file:// URL
+export NEREUS_BUNDLE_URL=~/nereus-runtime-1.13.3-macos-arm64.tar.zst   # path or file:// URL
 ```
 
 `NEREUS_HOME` moves the runtime cache out of the default platform cache directory
 (`~/Library/Caches/nereus` on macOS, `$XDG_CACHE_HOME/nereus` or `~/.cache/nereus`
 on Linux).
+
+### Update warnings
+
+The first time a session starts, astronereus looks up the latest `astronereus` on PyPI
+and the latest [Nereus.jl release](https://github.com/jvines/Nereus.jl/releases), and
+emits an `astronereus.UpdateAvailableWarning` (a `UserWarning`) if either is ahead of
+what you have. The client is compared with PyPI. The Nereus compared is the one your
+client runs against: a client pins its runtime, so a Nereus release that no
+`astronereus` ships yet is reported as such rather than as something you can update.
+If you set `NEREUS_JULIA` or `NEREUS_BUNDLE_URL` you are running your own Nereus, and
+only the client is compared.
+
+The check runs once per process on a background thread with a 2 s timeout, fails
+silently, and is cached for 24 hours in the runtime cache directory. It never runs at
+import. To turn it off, set `ASTRONEREUS_NO_UPDATE_CHECK=1` (it is also off when `CI`
+is set) or filter the class:
+
+```python
+warnings.simplefilter("ignore", astronereus.UpdateAvailableWarning)
+```
+
+`astronereus.check_updates()` runs it on demand, ignoring the opt-out and the cache,
+and returns an `UpdateStatus` with the installed and latest versions.
 
 ## Sessions
 
@@ -146,7 +171,7 @@ with astronereus.session() as s:
 ```
 
 ```
-{'julia': '1.11.9', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.8.8', 'pong': True}
+{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.0', 'pong': True}
 ```
 
 Everything the module-level functions do is also a method on the session
@@ -176,11 +201,52 @@ nothing talks to it for `idle_timeout` seconds.
 see [Job configs](#job-configs-run_job). The typed `fit_*` entry points described in
 the later sections are the usual route.
 
+### Stopping a fit early
+
+Four ways to end a PT fit (`PTEmcee`, the default, and `TransdimPTEmcee`) before
+its `n_steps` and keep the draws. The sampler stops at the last fully recorded
+step and the fit finishes normally: chains, tables and plots are written, and
+`r.summary["stopped"]` (or `r.stopped`) says why, with `stopped_at_step`,
+`n_steps` and `n_draws_kept` beside it.
+
+| how | `stopped` |
+|---|---|
+| Ctrl-C, or the stop button in a notebook, after burn-in | `"interrupted"` |
+| `engines.PTEmcee(convergence_stop=True, rhat_threshold=1.01, tail_ess_threshold=1000)` (or `Stopping(rhat_max=..., ess_min=...)`) | `"converged"` |
+| `Stopping(max_seconds=3600)` or `max_evals=` | `"max_seconds"` / `"max_evals"` |
+| a file appears at `stop_file=` (default `<output_dir>/STOP`) | `"requested"` |
+
+```python
+r = s.fit_rv(ds.rv, planets=1, output_dir="out",
+             stopping=astronereus.Stopping(rhat_max=1.01, ess_min=1000))
+r.stopped            # "converged" -- the run ended early with a usable posterior
+```
+
+Ctrl-C asks for the graceful stop and the call keeps waiting for the result,
+which comes back with a `RuntimeWarning` naming the step. **Ctrl-C again aborts
+instead** and discards the draws. An interrupt during burn-in aborts too, since
+there are no draws yet.
+
+The convergence gate is off by default. For `TransdimPTEmcee` it watches the
+model index, the planet-slot parameters (over the draws where each slot is
+active) and `rho_s`, and the progress bar shows live `Rhat` and `ESS` either way.
+`Stopping.logz_tol` sets `dlogz` for the nested engines; a `Stopping` field the
+engine cannot honour raises and names the engines that can. These need a runtime
+newer than 0.8.10 (see [Runtime bundles](#runtime-bundles)).
+
+From outside the process (a worker, a web front end), create the stop file:
+
+```python
+pathlib.Path("out/STOP").touch()      # looked for every ~5 s; never deleted for you
+```
+
 ### Interrupting a fit
 
-Ctrl-C (or the stop button in a notebook) reaches both Python and the Julia sampler.
-The fit stops, `FitInterrupted` is raised, nothing is written to `output_dir`, and
-the daemon stays up and warm:
+Ctrl-C (or the stop button in a notebook) reaches both Python and the Julia
+sampler. After burn-in it is a graceful stop, above. Otherwise (during burn-in, a
+second Ctrl-C, or an engine that cannot stop early) the fit is cancelled,
+`FitInterrupted` is raised, nothing is written to `output_dir`, and the daemon
+stays up and warm:
 
 ```python
 try:
@@ -310,11 +376,14 @@ and `columns=[...]` restricts the columns.
 
 ```python
 import lightkurve as lk
-lcs = lk.search_lightcurve("TOI-700", mission="TESS").download_all()
+lcs = lk.search_lightcurve("TOI-700", mission="TESS", author="SPOC").download_all()
 tr = Transit.from_lightkurve(lcs)                  # needs lightkurve
 ```
 
-Accepts a `LightCurve` or a `LightCurveCollection`. NaN cadences are dropped, flux is
+Restrict the search to one pipeline (`author="SPOC"`): without it the collection can
+include high-level science products from other authors (DIAMANTE, for one), which
+`download_all` may fail to read as light curves. Accepts a `LightCurve` or a
+`LightCurveCollection`. NaN cadences are dropped, flux is
 divided by its median (`normalize=True`), and each sector gets its own instrument name
 (`TESS_s1`, `TESS_s2`, ...) so it has its own jitter. Pass
 `per_sector=False, instrument="TESS"` to pool them deliberately.
@@ -552,14 +621,15 @@ Two routes exist:
 | radial velocities | `fit_rv(rv, ...)` | `{instrument: {t, rv, rv_err}}` |
 | transits | `fit_transit(lc, ...)` | `{instrument: {t, flux, flux_err}}` |
 | Doppler tomography | `fit_tomography(nights, ...)` | one `Night` per transit |
-| RV + transit, Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
+| RV + transit | `fit_joint(RV(...), Transit(...), ...)`, or `session.run_job(cfg)` | channels, or a job config |
+| Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
 | astrometry, and anything joined to it | see [Astrometry](#astrometry) | |
 
 A `run_job` config is documented in
 [JOB_CONFIG.md](https://github.com/jvines/Nereus.jl/blob/main/docs/JOB_CONFIG.md);
 the examples below show the blocks each mode needs. Times are MJD, RVs and their
 errors are in m/s, flux is relative. Parameters are named `<name>_k<n>` per planet
-(`P_k1`, `K_k1`, `Mo_k1`) and `<name>_<instrument>` per instrument (`gamma_HARPS`,
+(`P_k1`, `K_k1`, `phic_k1`) and `<name>_<instrument>` per instrument (`gamma_HARPS`,
 `sigma_HARPS`, `jitter_TESS`). `fit_*` priors are written
 `{"type": "uniform", "lo": 3.4, "hi": 3.6}` and `run_job` priors
 `{"type": "UniformPrior", "args": [3.4, 3.6]}`; see [Priors](#priors). The examples
@@ -642,15 +712,17 @@ def make_sb2(P=12.3, T0=58950.0, K1=30e3, K2=45e3, gamma=5e3, sig=300.0, n=40, s
 ```
 
 A `run_job` result keeps its fitted table under `r.raw["fitted"]["parameters"]`
-(value, `err_hi`, `err_lo`, unit); `show` prints it. The same tables are written to
+(value, `err_hi`, `err_lo`, unit); `r.params` and `r.table()` read it from there,
+and `show` prints it in raw form. The same tables are written to
 `<output_dir>/tables/` as CSV, JSON, ECSV and LaTeX.
 
 ### Radial velocities
 
 `fit_rv` fits one or more Keplerians to RVs from any number of instruments. Each
 instrument gets a systemic offset `gamma_<inst>` (m/s) and a jitter `sigma_<inst>`
-(m/s). The default planet block is `P`, `K`, `sesinw`, `secosw` and `Mo`. Bracket
-`P_k1` whenever you know roughly where it is.
+(m/s). The default planet block is `P`, `K`, `sesinw` and `secosw`, and the orbital
+phase is the transit phase `phic_k1` (see [Transits](#transits)). Bracket `P_k1`
+whenever you know roughly where it is.
 
 ```python
 import astronereus
@@ -686,7 +758,7 @@ Keywords beyond the data:
 | `external_priors` | priors on derived quantities, e.g. eccentricity |
 | `plots`, `science`, `output_dir` | figures, the post-fit block and where files go ([Results](#results)) |
 
-Jitter can be zero. Its default prior is a normal on (0, 50) m/s truncated at 0, so a
+Jitter can be zero. Its default prior is `NormalPrior(5, 5, 0, 50)` (m/s: a normal of mean 5 and width 5, truncated to `[0, 50]`), so a
 posterior piled against zero is a valid answer. To remove the parameter instead, fix
 it: `"sigma_APF": {"type": "fixed", "value": 0.0}`.
 
@@ -750,27 +822,84 @@ print(r.derived)
 ```
 
 A single transit does not fix `P_k1`; bracket it, or fit several transits.
-Finite-exposure supersampling is set in a job config, from the `exposure_time` field
-(seconds) of a `transit_photometry` block (default 120 s; see `phot_blocks` in
-`synth.py`). Gravity-darkened transits are also a job-config option; see
+Finite-exposure supersampling is `Transit(data, exposure_time=1800.0)` (seconds; one number or
+`{instrument: seconds}`) on the typed route, or the `exposure_time` field of a
+`transit_photometry` block in a job config (default 120 s there; see `phot_blocks` in
+`synth.py`). Left unset the typed route's model is instantaneous: right for 2-minute data,
+wrong for 30-minute data. `Transit(dilution={"TESS": 0.1})` fixes the third light and
+`Transit(jitter=...)` sets the photometric jitter prior (a number is fixed, a prior dict is
+sampled). `limb_darkening` is "quadratic" or "kipping" (the same model); other laws,
+`gravity_darkening=True` and `supersample=` raise. Gravity-darkened transits are a job-config option; see
 [obliquity.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/obliquity.md).
 
-The orbital phase is the mean anomaly `Mo_k1` unless you pick another anchor. For a
-transiting planet pass `time_anchor="phic"`. The sampler then takes the transit phase
-`phic_k1 = 2 pi (Tc - t_ref_c) / P` (rad, uniform on `[-pi, pi]` by default), which the
-transit pins whatever e and omega are, and reports the mid-transit time as the derived
-`Tc_k1` (BJD), computed from each draw's own period. `t_ref_c` is the median
-photometric time, so `Tc_k1` is the transit nearest the middle of the data. A
-`Tc_k1` prior over the whole baseline (`time_anchor="Tc"`) instead holds one copy of
-the orbit per period, which the sampler does not mix between; with the period longer
-than the baseline it cuts off part of the phase. In a job config the same choice is
-`model.parametrization.time = "phic"`.
+The orbital phase is the transit phase `phic_k1 = 2 pi (Tc - t_ref_c) / P` (rad,
+uniform on `[-pi, pi]` by default), in every fit unless you pick another anchor with
+`time_anchor`. A transit pins it whatever e and omega are. Without one it is still the
+better coordinate: at low eccentricity the data fix the mean longitude `Mo + omega`
+rather than either angle, so a fit in the mean anomaly `Mo` walks a ridge in
+(`Mo`, omega) that biases e upwards, while `phic` is close to the mean longitude and
+has no ridge. For a given period, e and omega the two differ by a shift, so the prior
+and the posterior are the same orbit. Each draw also reports the mid-transit time
+`Tc_k1` (BJD), the time of periastron `Tp_k1` (BJD) and the mean anomaly at the
+reference epoch `Mo_deg_k1` as derived quantities, from its own period. `t_ref_c` is
+the median photometric time (the reference epoch of the data when there is no
+photometry), so `Tc_k1` is the transit nearest the middle of the data.
+`time_anchor="Mo"`, `"Tp"` or `"Tc"` samples that instead, and so does a fit whose
+`priors` name `Mo_k1`, `Tp_k1` or `Tc_k1` without a `time_anchor`. A `Tc_k1` prior over the whole baseline
+(`time_anchor="Tc"`) holds one copy of the orbit per period, which the sampler does not
+mix between; with the period longer than the baseline it cuts off part of the phase. In
+a job config the same choice is `model.parametrization.time`. Runtimes up to Nereus
+0.8.10 default to `"Mo"`; pass `time_anchor="phic"` there.
 
 ### RV and transit together
 
-In this release, run this mode through a job config.
+`fit_joint` takes an `RV` and a `Transit` channel; `planets` is an int or a list, as
+for `fit_rv`. The planet block is the RV one (`P`, `K`); the eccentricity vector, the
+time anchor and the transit parameters (`rr_k1`, `b_k1`, limb darkening) come from the
+defaults and can be bracketed in `priors`. Stellar mass and radius set the scale of
+the transit: pass `M_s` and `R_s`.
 
-Both datasets share one orbit: `P_k1`, `Mo_k1` and the eccentricity vector, with
+```python
+from astronereus import RV, Transit
+from synth import make_lc, make_rv
+
+with astronereus.session() as s:
+    r = s.fit_joint(RV(data=make_rv()), Transit(data=make_lc(n_tr=3)), planets=1,
+                    M_s=1.0, R_s=1.0,
+                    priors={"P_k1": {"type": "uniform", "lo": 3.4, "hi": 3.6},
+                            "rr_k1": {"type": "uniform", "lo": 0.02, "hi": 0.3}})
+print(r.params)
+```
+
+`use_rho_s=True` puts a prior on the stellar density (`rho_s`, solar units) and derives the
+transit's $a/R_\star$ from it and the period, as a job config's `parametrization.use_rho_s`
+does; the prior goes in `priors`, e.g. `{"rho_s": {"type": "normal", "mu": 1.79, "sigma": 0.11, "lo": 0.1,
+"hi": 10.0}}`. It needs a `Transit` channel, and `fit_transit(..., use_rho_s=True)` takes the same
+keyword. The stellar keywords of a job's `star` block reach the derived table as keywords too:
+`M_s`, `R_s`, `T_eff`, `J_mag`, `K_mag`, `Ab`, `sigma_M_s`, `sigma_R_s`, `sigma_T_eff`
+(`fit_rv`, `fit_transit`, `fit_astrometry`, `fit_joint`). `Transit(use_rho_s=...)` and
+`Transit(rho_star=...)` were never read and now raise. For every other `model` option, use the
+job config below.
+
+**What is sampled for the density.** Since Nereus 0.9.0 a transiting planet with free
+eccentricity (both eccentricity coordinates sampled) is fitted in the photo-eccentric
+parametrization, `density="rho_circ"`, the default. The chain samples the
+circular-equivalent density `rho_circ_k<k>` (solar units, $\rho_\star g^3$ with
+$g = (1 + e\sin\omega)/\sqrt{1 - e^2}$), which is what a transit duration measures,
+and `e` and `omega` come back as derived columns of the same names. Where $\rho_\star$
+is not a sampled parameter (it comes from `M_s` and `R_s`, or is fixed) the planet
+also samples `eta_k<k>` (rad), its coordinate along the curve of constant $g$, and
+`rho_s` is not sampled at all. With `use_rho_s=True` and a free `rho_s` prior, the first
+eligible planet samples `rho_circ_k1` in place of `rho_s` (its eccentricity coordinates
+stay sampled) and `rho_s` is derived from it; later
+planets sample `rho_circ_k<k>` and `eta_k<k>`. So with free e the sampled name is
+`rho_circ_k1`, not `rho_s`. The prior on `rho_s` still goes in `priors`: Nereus carries
+it through the change of variables, and `rho_circ_k<k>` and `eta_k<k>` themselves take
+no prior. `density="rho_star"` (a keyword of `fit_transit`, `fit_joint` and the other
+`fit_*`) opts out and samples `rho_s` and the eccentricity coordinates directly, as
+runtimes before 0.9.0 did. A fit with e fixed has nothing to reparametrize.
+
+Both datasets share one orbit: `P_k1`, `phic_k1` and the eccentricity vector, with
 `K_k1` for the RV amplitude and `rr_k1`, `b_k1` for the transit. Each instrument keeps
 its own offsets and jitters. Use the `RVPM` planet mode; `trend_order`,
 `phot_trend_order` and `noise_models` go in the `model` block. Adding astrometry is
@@ -945,8 +1074,8 @@ planet slot, keyed by slot number as a string. The default prior on each offset 
 normal of width 1 day, so set a tighter one. `RVPM_TTV_NB` predicts the timings from
 the planets' masses and orbits: it needs two or more planets, and RV to give the
 masses. `ttv_backend` selects the predictor: `"ttvfaster"` (first order, the default)
-or `"nbody"` (full integration, several times slower; give `rr`, `b`, `Mo` and the
-eccentricity vector bounded priors).
+or `"nbody"` (full integration, several times slower; give `rr`, `b`, the phase
+`phic` and the eccentricity vector bounded priors).
 
 ```python
 import numpy as np
@@ -1061,13 +1190,36 @@ Any subset may be given. Two quantities are priors, not arguments, and go in the
 
 | prior | what | note |
 |---|---|---|
-| `plx` | parallax (mas) | Give an informative one. The abscissae constrain a0 ∝ M_sec · plx, so mass and parallax are degenerate otherwise. With an `hgca` supplied, the default is a normal prior built from the catalogue parallax |
+| `plx` | parallax (mas) | Give an informative one. The abscissae constrain a0 ∝ M_sec · plx, so mass and parallax are degenerate otherwise. With `gaia_id`/`name` the default is a normal prior on the Gaia DR3 parallax (below); else, with an `hgca` supplied, one built from the catalogue parallax |
 | `M_pri` | primary mass (M_sun) | Fixed or normal. The mass of the companion scales with it. Without a star mass the default is log-uniform on 0.05-5 |
 
-For astrometric fits two model options are worth setting: `parametrization="a_driven"`
-(sample the semi-major axis and companion mass, as orvara does) and `time_anchor="Mo"`
-(mean anomaly at the reference epoch, which behaves better for long periods). Both are
-keyword arguments of `fit_astrometry` and `fit_joint`; the parametrizations are
+#### Parallax from Gaia at run time
+
+Pass the star's Gaia DR3 source_id as `gaia_id` (an int, a string of digits, or
+`"Gaia DR3 <id>"`), or its `name` (anything Simbad resolves, such as `"HIP 103836"`),
+to `fit_astrometry` or `fit_joint` and Nereus queries the DR3 parallax itself:
+
+```python
+r = fit_astrometry(iad=iad, hgca=hgca, gaia_id=6774368627975155968,
+                   priors={"M_pri": {"type": "normal", "mu": 0.9, "sigma": 0.05}})
+r = fit_astrometry(iad=iad, name="HIP 103836")      # resolved to its DR3 source_id first
+```
+
+The value becomes the default `plx` prior, a normal prior on the raw catalogue parallax
+(no zero-point correction), truncated at ±10σ. The order of precedence is: your own
+`priors["plx"]` (then nothing is queried), the Gaia lookup, the HGCA parallax, the G23H
+parallax, then log-uniform on 0.1-1000 mas. `gaia_id` wins if both keys are given. The
+lookups are cached on disk, so a rerun is offline. If the query fails the fit stops with a
+message, and does not fall back to another parallax; the way out is a `priors["plx"]`.
+`summary["star"]["gaia"]` records the source_id, parallax, error, DR release and whether
+the star was found by id or name. In a job config the same two keys go in the `star`
+block. These keywords need a runtime newer than Nereus 0.8.10.
+
+For astrometric fits `parametrization="a_driven"` is worth setting (sample the
+semi-major axis and companion mass, as orvara does). The examples below also pass
+`time_anchor="Mo"` (the mean anomaly at the reference epoch); the default, the transit
+phase `phic`, describes the same orbit without the low-eccentricity ridge of `Mo`. Both
+are keyword arguments of `fit_astrometry` and `fit_joint`; the parametrizations are
 described in
 [parametrizations.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/parametrizations.md).
 
@@ -1341,6 +1493,17 @@ before sampling starts. The Beta and modified-Jeffreys priors are reachable thro
 `LogUniformPrior`, `ModJeffreysPrior`, `NormalPrior`, `FixedPrior`, `SinePrior` and
 `BetaPrior`.
 
+Angles are sampled on their own topology, whatever spec is given. A full-circle
+angle (`Omega`, `lambda`, `w` under the `ew` parametrization, and `Mo` or `phic`
+unless TTVs are modelled) with a uniform over one period, a uniform over several
+periods or a normal is a circle: a normal is wrapped (its density summed over every
+period), and the samplers move the seam of the window off the posterior, so lambda
+near +-pi or Omega near 0 is never against a wall. An inclination (`inc_k`, `i_star`)
+whose prior covers all of `[0, pi]` (`sine`, `uniform` on `[0, pi]`, a normal truncated
+there) is folded at its poles, so 0 and 180 deg are values, not edges. A prior on only
+part of an angle's range keeps its walls, and a posterior pressing against one is
+reported as the prior's restriction.
+
 ```python
 priors = {
     "P_k1": {"type": "loguniform", "lo": 8, "hi": 16},     # days
@@ -1352,7 +1515,7 @@ priors = {
 with astronereus.session() as s:
     r = s.fit_rv(rv, planets=1, priors=priors, output_dir="out/priors")
 print(list(r.params))
-# ['K_k1', 'gamma_HARPS', 'gamma_HIRES', 'P_k1', 'sigma_HARPS', 'sigma_HIRES', 'Mo_k1']
+# ['K_k1', 'gamma_HARPS', 'gamma_HIRES', 'P_k1', 'sigma_HARPS', 'sigma_HIRES', 'phic_k1']
 ```
 
 Fixed parameters do not appear in `r.params`.
@@ -1368,13 +1531,14 @@ from your data dict.
 | `P_k1` | period (days) | log-uniform from 0.1 d to three baselines |
 | `K_k1` | RV semi-amplitude (m/s) | modified Jeffreys, ceiling from the RV scatter |
 | `sesinw_k1`, `secosw_k1` | sqrt(e) sin(omega), sqrt(e) cos(omega) | uniform on `[-1, 1]` |
-| `Mo_k1` | mean anomaly at the reference epoch (rad) | uniform on `[0, 2 pi]` |
-| `phic_k1` | transit phase `2 pi (Tc - t_ref_c) / P` (rad), replaces `Mo_k1` under `time_anchor="phic"` | uniform on `[-pi, pi]` |
+| `phic_k1` | transit phase `2 pi (Tc - t_ref_c) / P` (rad), the default anchor; `Tc_k1`, `Tp_k1` and `Mo_deg_k1` are derived from it | uniform on `[-pi, pi]` |
+| `Mo_k1` | mean anomaly at the reference epoch (rad), replaces `phic_k1` under `time_anchor="Mo"` | uniform on `[0, 2 pi]` |
 | `gamma_<inst>` | RV zero point (m/s) | uniform, data mean plus or minus three times the scatter |
 | `sigma_<inst>` | extra RV jitter (m/s) | normal(5, 5) truncated to `[0, 50]` |
 | `inc_k1`, `Omega_k1` | inclination, node (rad), astrometric planets | sine, uniform on `[0, 2 pi]` |
 | `M_sec_k1`, `a_k1` | companion mass (M_sun), semi-major axis (AU), by parametrization | log-uniform |
 | `plx`, `M_pri` | parallax (mas), primary mass (M_sun) in astrometric fits | set these yourself, see [Astrometry](#astrometry) |
+| `rho_circ_k<k>`, `eta_k<k>` | circular-equivalent stellar density (solar units) and the orbit's coordinate along its curve of constant density factor (rad), for a transiting planet with free e; they replace `rho_s` and the eccentricity coordinates as sampled parameters (`density="rho_star"` restores those) | none to give: derived from the priors on `rho_s` and e, see [RV and transit together](#rv-and-transit-together) |
 | `lambda_k1`, `v_sin_i_star` | spin-orbit angle (rad), projected rotation (m/s) in RM fits | uniform `[-pi, pi]`, log-uniform |
 | `offset_<inst>`, `jitter_<inst>`, `q1_<inst>`, `q2_<inst>`, `rho_s` | photometry offset, jitter, limb darkening, stellar density | see [Transits](#transits) |
 
@@ -1432,8 +1596,8 @@ print(r)
 | `PTHMC` | `pt_hmc` | NUTS inside PT; smooth, differentiable fixed-dimension models | `n_temps`, `n_walkers_per_temp`, `n_sweeps`, `n_warmup`, `target_accept` | yes |
 | `PTWhitening` | `pt_whitening` | PT with whitened proposals, for strongly correlated posteriors | `n_temps`, `n_walkers`, `n_steps`, `n_burnin`, `whiten_window` | yes |
 | `Nested` | `nested` | a single-run evidence for fixed dimension | `n_live`, `dlogz`, `bounds`, `proposal`, `parallel` | yes |
-| `NestedINS` | `nested_ins` | importance nested sampling | `n_live`, `dlogz`, `proposal`, `max_iter` | no |
-| `NestedDynamic` | `nested_dynamic` | dynamic nested sampling, live points follow the posterior | `n_live_init`, `n_live_batch`, `dlogz_init`, `dlogz_batch` | no |
+| `NestedINS` | `nested_ins` | importance nested sampling | `n_live`, `dlogz`, `proposal`, `max_iter` | yes |
+| `NestedDynamic` | `nested_dynamic` | dynamic nested sampling, live points follow the posterior | `n_live_init`, `n_live_batch`, `dlogz_init`, `dlogz_batch` | yes |
 | `NUTS` | `nuts` | smooth unimodal posteriors | `n_samples`, `n_warmup`, `n_chains`, `target_accept`, `ad_backend` | no |
 | `Ensemble` | `ensemble` | plain affine-invariant ensemble, one temperature | `n_walkers`, `n_steps`, `n_burnin`, `thinning` | no |
 | `ESS` | `ess` | elliptical slice sampling, Gaussian-prior latent models | `n_samples`, `n_burnin`, `n_chains` | no |
@@ -1486,10 +1650,11 @@ with astronereus.session() as s:
                  priors={"P_k1": {"type": "normal", "mu": 12, "sigma": 0.1, "lo": 11, "hi": 13},
                          "sigma_HARPS": 1.0, "sigma_HIRES": 1.0},
                  engine=engines.MAP(n_starts=8), output_dir="out/map")
-print(m.log_z)                 # Laplace evidence
+print(m.log_z)                 # Laplace evidence (`m.params` is empty for MAP; see Known limitations)
 print(m.raw["map"])
 # {'railed': False, 'railed_params': [], 'log_posterior': -697.77,
-#  'converged': False, 'n_basins': 8}
+#  'converged': False, 'n_basins': 8,
+#  'log_z': 'Laplace approximation at the MAP'}
 ```
 
 A railed fit comes back with `status="railed"` rather than `"ok"`; see
@@ -1570,6 +1735,8 @@ parameters and figures.
 | `r.derived` | derived physical quantities, a `Params` table |
 | `r.table(fitted=True, derived=True, diagnostics=False)` | both tables, plus sampler health with `diagnostics=True` |
 | `r.log_z` | log evidence, or `None` (NaN for samplers without one) |
+| `r.stopped` | how the sampler ended: `"steps"`, `"converged"`, `"interrupted"`, `"requested"`, `"max_seconds"` or `"max_evals"`; `None` for an engine that does not report it |
+| `r.provenance` | what produced the fit, from the summary's `provenance` block: `engine`, `nereus_version`, `nereus_commit` (`None` unless Nereus ran from a git checkout) and `priors` (per parameter: `family`, `fixed`, bounds and hyperparameters); `{}` for a summary written before the block existed |
 | `r.n_planets_posterior` | planet-count posterior, trans-dimensional fits only |
 | `r.diagnostics` | `Diagnostics`: ladder acceptance, R-hat and ESS |
 | `r.fit_health` | pass/fail checks on the run |
@@ -1588,8 +1755,8 @@ subclass holding the median, so it works in arithmetic.
 ```python
 print(r.params)
 # fitted parameters (9)
-#   Mo_k1         3.54 +0.83 -2.28  rad  = 202.66 deg
 #   P_k1         12.00 +1.38 -0.77  d
+#   phic_k1      -0.42 +0.05 -0.05  rad  = -24.06 deg
 #   ...
 p = r.params["P_k1"]        # also r.params.P_k1
 float(p)                    # the median
@@ -1671,10 +1838,17 @@ Request figures with `plots=[...]` on the fit. Without it nothing is drawn.
 r = s.fit_rv(rv, planets=1, output_dir="out/res",
              priors={"P_k1": {"type": "loguniform", "lo": 8, "hi": 16}},
              plots=["corner", "rv_phasefold"])
-list(r.figures)               # ['corner', 'models/RV_phasefold_K1']
-r.figures["corner"]           # a Figure
-r.figures.corner              # the same, by attribute
+list(r.figures)               # ['corner_K1', 'models/RV_phasefold_K1']
+r.figures["corner_K1"]        # a Figure
+r.figures.corner_K1           # the same, by attribute
 ```
+
+`"corner"` draws one corner per planet, of that planet's parameters
+(`corner_K1`, `corner_K2`, ...), and one of the noise model -- jitters, GP
+hyperparameters and the other noise-model parameters -- as `corner_noise`, when
+the model has at least two of them (a single-instrument fit with no GP has one
+jitter, so no `corner_noise`). Offsets, trends and stellar parameters are in no
+corner. There is no all-parameter corner.
 
 `r.figures` is a mapping from a logical name to a `Figure`, which is a `pathlib.Path`
 that also renders itself in a notebook. In an attribute name `/`, `.` and `-` become
@@ -1712,7 +1886,8 @@ s.replot(rv, output_dir="out/res", planets=1, plots=["corner"],      # session f
 
 ### JobFailed
 
-A `fit_*` call that Nereus rejects after running, such as a railed `MAP`, returns a
+A `fit_*` call that Nereus rejects after running, such as a `MAP` that rails against a
+prior bound, returns a
 `JobResult` with `ok == False` and prints as
 `<JobResult FAILED status='railed' error=...>`. It does not raise. Call `r.check()` to
 turn that into an exception; it returns the result when the run succeeded, so it
@@ -1728,8 +1903,12 @@ try:
     m.check()
 except JobFailed as e:
     print(e.error)
+# when a start rails, e.g.:
 # MAP railed against a prior bound on: P_k1, K_k1 - treat this as a failed fit, not a result
 ```
+
+Whether a given fit rails depends on the data and the priors: with a bracket that
+contains the true period the same call can succeed, and `m.check()` then returns `m`.
 
 `JobFailed` carries `error`, `traceback` and `config_path`. Errors raised before a fit
 starts (an unknown prior type, an unknown sampler name in a config) are
@@ -1761,7 +1940,7 @@ cfg = {
 }
 r = astronereus.run_job(cfg)           # or s.run_job(cfg) inside a session
 print(r)
-# <JobResult status=ok log_z=-164.61 elapsed=20s 0 params 1 figures>
+# <JobResult status=ok log_z=-164.61 elapsed=20s 7 params 1 figures>
 P = r.raw["fitted"]["parameters"]["P_k1"]
 print(P["value"], P["err_lo"], P["err_hi"], P["unit"])
 # 11.989 0.0165 0.0157 d
@@ -1775,7 +1954,7 @@ Differences from `fit_*`:
   `{"type": "ModJeffreysPrior", "args": [knee, upper]}`.
 - Parameters come back under `r.raw["fitted"]["parameters"]` (each entry has `value`,
   `err_lo`, `err_hi`, `ci3`, `unit`; the `show` helper in [Fit modes](#fit-modes)
-  prints them). `r.derived`, `r.log_z` and `r.figures` work as for `fit_*`.
+  prints them). `r.params`, `r.derived`, `r.log_z` and `r.figures` work as for `fit_*`.
 - A bad config (an unknown `sampler.name`, a missing block) raises `DaemonError`
   listing the valid names, even with `check=False`.
 - `run_job` raises `ValueError` before starting if `output_dir` is missing.
@@ -1783,3 +1962,29 @@ Differences from `fit_*`:
 `astronereus.run_job` starts a process-wide daemon on first use and reuses it; `with
 astronereus.session() as s: s.run_job(cfg)` makes the lifetime explicit, which is the
 better form for several jobs in a row.
+
+## Known limitations
+
+These routes exist in the Python API but do not work in this release. Use the route
+given instead.
+
+- `fit_rm`, `fit_ttv` and `fit_binary` fail: the job they send carries no priors, or
+  `PriorSpec` objects where Nereus wants dicts. Run Rossiter-McLaughlin, TTV and
+  spectroscopic-binary fits through `s.run_job(cfg)` with a job config, as in the
+  examples above.
+- `fit_rv(noise=[...])` fails (a dict cannot be converted to a noise model). Put
+  `noise_models` in the `model` block of a `run_job` config ([Trends and noise
+  models](#trends-and-noise-models)).
+- `fit_rv(trend_order=1)` and `RV(trend_order=..., jitter=...)` passed to `fit_rv` are
+  silently dropped. Use `fit_joint`, or `"trend_order"` in the `model` block of a
+  `run_job` config.
+- `s.run_job("cfg.json")` with a file path fails. Read the file and pass the dict:
+  `s.run_job(json.load(open("cfg.json")))`.
+- `engines.MAP` leaves `m.params` empty. Read `m.raw["map"]` and `m.log_z`.
+- `s.detect.transits(method="bls")` fails (the method must be a Symbol on the Julia
+  side, and a string is sent). Call it without `method`, which runs the box-least-squares
+  search.
+- `s.detect.lc_periodogram` is not wired, and there is no `s.diagnostics.loo` or
+  `s.diagnostics.ppc`. Read `r.loo` and `r.ppc` from the fit result.
+- `planets=[0, 1, 2]` without `transdim=True` is a fixed two-planet fit, not a
+  search ([Trans-dimensional fits](#trans-dimensional-fits)).

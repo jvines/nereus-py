@@ -35,9 +35,36 @@ class Engine:
     """Base. `name` is the Julia sampler; `options()` its keyword arguments."""
 
     name: str = ""
+    # The `init_strategy` values the Julia sampler implements, for the engines
+    # that have the field, and the spellings this client translates. A value
+    # outside them used to cross the wire and fall through to the prior draw:
+    # `PTEmcee(init_strategy="map")` ran exactly the "prior" fit, silently.
+    _init_strategies: tuple[str, ...] = ()
+    _init_aliases: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        self._init_strategy()
+
+    def _init_strategy(self) -> str | None:
+        v = getattr(self, "init_strategy", None)
+        if v is None:
+            return None
+        aliases = dict(self._init_aliases)
+        if v in aliases:
+            return aliases[v]
+        if v in self._init_strategies:
+            return v
+        valid = ", ".join(repr(x) for x in self._init_strategies)
+        also = "".join(f" ({a!r} is {b!r})" for a, b in self._init_aliases)
+        raise ValueError(
+            f"{type(self).__name__}: init_strategy={v!r} is not implemented by "
+            f"{self.name}; use one of {valid}{also}")
 
     def options(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        d = {k: v for k, v in asdict(self).items() if v is not None}
+        if "init_strategy" in d:
+            d["init_strategy"] = self._init_strategy()
+        return d
 
     def to_wire(self) -> dict[str, Any]:
         return {"engine": self.name, "options": self.options()}
@@ -53,6 +80,7 @@ class PT(Engine):
     and 15 is 32768. Cost roughly doubles per round.
     """
     name = "pt"
+    _init_strategies = ("prior", "pathfinder")
     n_rounds: int | None = None
     n_chains: int | None = None
     seed: int | None = None
@@ -86,6 +114,7 @@ class PTHMC(Engine):
 class PTWhitening(Engine):
     """Normalising-flow-coupled PT; better swap acceptance on multimodal posteriors."""
     name = "pt_whitening"
+    _init_strategies = ("prior",)
     n_temps: int | None = None
     n_walkers: int | None = None
     n_steps: int | None = None
@@ -97,9 +126,12 @@ class PTWhitening(Engine):
     whiten_window: int | None = None
     whiten_refresh: int | None = None
     betas: Sequence[float] | None = None
-    init_strategy: Literal["pathfinder", "prior"] | None = None
+    # pt_whitening draws every walker from the prior; it took "pathfinder" and
+    # ignored it. "prior" is the only value.
+    init_strategy: Literal["prior"] | None = None
     seed: int | None = None
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
+    de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
     show_progress: bool | None = None
 
 
@@ -109,15 +141,24 @@ class PTEmcee(Engine):
 
     NOTE `init_strategy="prior"` matters for weak signals — prior-distributed
     walkers across chains and temperatures is what recovers low-K planets.
+
+    `init_strategy` is "prior" (Julia's default), "pathfinder" or
+    "map_scatter" (the MAP plus a small scatter); "map" is sent as
+    "map_scatter". Anything else is a ValueError.
     """
     name = "pt_emcee"
+    _init_strategies = ("prior", "pathfinder", "map_scatter")
+    # This field was typed Literal["prior", "ball", "map"]: neither of the last
+    # two was ever implemented, and both ran the prior draw. "map" meant the MAP
+    # start, which Julia calls "map_scatter"; "ball" named nothing.
+    _init_aliases = (("map", "map_scatter"),)
     n_temps: int | None = None
     n_walkers: int | None = None
     n_steps: int | None = None
     n_burnin: int | None = None
     min_steps: int | None = None
     stretch_a: float | None = None
-    init_strategy: Literal["prior", "ball", "map"] | None = None
+    init_strategy: Literal["prior", "pathfinder", "map_scatter", "map"] | None = None
     thin: int | None = None
     seed: int | None = None
     pf_n_runs: int | None = None
@@ -150,6 +191,21 @@ class PTEmcee(Engine):
     # restores the pre-0.6.1 behaviour. Never offered to a planet with RV or
     # transit data, so it costs nothing on those fits.
     node_flip: float | None = None
+    # Nereus 0.9.0 and later. Probability per walker and step of a differential-
+    # evolution move, x' = x + γ(x_j − x_k) + ε, in place of the stretch move.
+    # The stretch move proposes along chords, which leave a thin curved ridge,
+    # so walkers burn-in leaves on one stay: one transit-only seed in six kept
+    # 47% of its draws on the constant-duration ridge (nested sampling: 1.4%)
+    # with R-hat at 1.0002.
+    # 0.5 by default in Julia; `0` restores the stretch-only kernel draw for draw.
+    de_move: float | None = None
+    # Ending production early without losing the draws (Nereus 0.9.0 and later; see
+    # `Stopping`). `convergence_stop` and its thresholds are above.
+    max_seconds: float | None = None
+    max_evals: int | None = None
+    # A file whose appearance stops the run at the last recorded step. Left
+    # unset, a fit with an output_dir watches <output_dir>/STOP.
+    stop_file: str | None = None
     show_progress: bool | None = None
 
 
@@ -300,12 +356,15 @@ class TransdimPTEmcee(Engine):
     ladder_adapt_K: float | None = None
     prune_stranded: bool | None = None       # Nereus >= 0.6.0; see PTEmcee
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
+    de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
     # Nereus >= 0.7.0, and trans-dim only -- pt_emcee and pt_whitening do not
     # take it. Tempered probability, per walker, planet and step, of proposing
     # the (Mo, omega) -> (Mo + d, omega - d) slide along the mean-longitude
     # ridge. At low e the data pin lambda = Mo + omega rather than either angle,
     # and under (:Mo, :sesinw) that ridge is a helix the linear stretch can only
-    # cut chords across, so walkers freeze on their own arc.
+    # cut chords across, so walkers freeze on their own arc. It acts only under
+    # time_anchor="Mo": the default anchor, the transit phase phic, is close to
+    # lambda at low e and has no ridge to slide along.
     #
     # OFF BY DEFAULT IN JULIA (0.0) and that is deliberate: at the ensemble
     # level it trades median throughput for tail risk. Over 16 seeds, nine
@@ -326,6 +385,21 @@ class TransdimPTEmcee(Engine):
     n_noise_relax: int | None = None
     untemper_transit: bool | None = None
     seed: int | None = None
+    # Run until converged, as for `PTEmcee` (Nereus 0.9.0 and later). The gating set
+    # is the model index (`n_planets`), the planet-slot parameters (assessed
+    # over the draws where the slot is active, slots relabelled in period
+    # order) and `rho_s`; `science_params` replaces the slot part. Off by
+    # default. The progress bar's Rhat / ESS readout runs either way.
+    convergence_stop: bool | None = None
+    rhat_threshold: float | None = None
+    tail_ess_threshold: float | None = None
+    n_converged_checks: int | None = None
+    min_steps: int | None = None
+    diag_every: int | None = None
+    science_params: Sequence[str] | None = None
+    max_seconds: float | None = None
+    max_evals: int | None = None
+    stop_file: str | None = None
     show_progress: bool | None = None
 
 
@@ -391,6 +465,7 @@ class Ensemble(Engine):
     n_chains: int | None = None
     thinning: int | None = None
     seed: int | None = None
+    de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
 
 
 @dataclass
@@ -415,6 +490,8 @@ class PA(Engine):
     ess_target: float | None = None
     step_scale: float | None = None
     stretch_a: float | None = None
+    # Nereus 0.9.0 and later, `mutation_kernel="stretch"` only; see PTEmcee.
+    de_move: float | None = None
     mutation_kernel: Literal["stretch", "rwm", "adaptive_cov"] | None = None
     seed: int | None = None
     show_progress: bool | None = None

@@ -115,7 +115,14 @@ _UNITS = {
     "P": "d", "K": "m/s", "K_A": "m/s", "K_B": "m/s",
     "a": "AU", "M_sec": "M_sun", "M_pri": "M_sun", "M_s": "M_sun",
     "plx": "mas",
-    "rho_s": "rho_sun",             # sampled as rho_star / rho_sun (1.411 g/cm3)
+    "rho_s": "rho_sun",             # sampled as rho_star / rho_sun (1.4098 g/cm3, from the nominal M_sun and R_sun)
+    # density="rho_circ" (Nereus's default for a transiting planet with free e):
+    # the circular-equivalent density rho_star g^3, g = (1 + e sin w)/sqrt(1 - e^2),
+    # in the same solar units, and eta, the orbit's coordinate on its ellipse of
+    # constant g -- not an orbital angle, and its seam is at e = 1, where the
+    # density vanishes, so it never wraps across a posterior. rho_s and the
+    # e-coordinates come back as derived columns of the same names.
+    "rho_circ": "rho_sun", "eta": "rad",
     "Tp": "BJD", "Tc": "BJD", "T14": "d",
     "sesinw": "", "secosw": "", "esinw": "", "ecosw": "", "ecc": "",
     "b": "", "rr": "", "q1": "", "q2": "",
@@ -682,6 +689,15 @@ class JobResult:
     def ok(self) -> bool:
         return self.status == "ok"
 
+    @property
+    def stopped(self) -> str | None:
+        """How the sampler ended: "steps" (ran to n_steps), "converged",
+        "interrupted" (Ctrl-C after burn-in), "requested" (the stop file
+        appeared), "max_seconds" or "max_evals". None for an engine that does
+        not report it. `raw["stopped_at_step"]`, `raw["n_steps"]` and
+        `raw["n_draws_kept"]` say where."""
+        return self.raw.get("stopped")
+
     def check(self) -> "JobResult":
         """Raise `JobFailed` unless the run succeeded. Returns self, so chainable."""
         if not self.ok:
@@ -698,7 +714,12 @@ class JobResult:
     @property
     def params(self) -> "Params":
         """Per-parameter posterior summary, as a printable table."""
-        return Params(self.raw.get("params", {}) or {}, "fitted parameters")
+        # `fit_*` summaries carry the parameters under "params"; `run_job`
+        # returns them under "fitted" (the science contract, wrapped as
+        # {"conditioning": ..., "parameters": {...}}). Reading only "params"
+        # made `run_job(cfg).params` an empty table.
+        return Params(self.raw.get("params") or self.raw.get("fitted") or {},
+                      "fitted parameters")
 
     @property
     def derived(self) -> "Params":
@@ -735,6 +756,15 @@ class JobResult:
     def log_z(self) -> float | None:
         v = self.raw.get("log_z")
         return float(v) if isinstance(v, (int, float)) else None
+
+    @property
+    def provenance(self) -> dict[str, Any]:
+        """What produced the fit: `engine`, `nereus_version`, `nereus_commit`
+        (None unless Nereus ran from a git checkout) and `priors` (parameter ->
+        `{family, fixed, lo, hi, ...hyperparameters}`; a fixed parameter is
+        `{family: "fixed", fixed: True, value}`). Empty for a summary written
+        before this block existed."""
+        return self.raw.get("provenance") or {}
 
     @property
     def n_planets_posterior(self):

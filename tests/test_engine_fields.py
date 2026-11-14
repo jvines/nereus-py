@@ -30,14 +30,16 @@ ENGINE_CLASSES = [
     engines.PA, engines.OFTI,
 ]
 
+# JSON3, not JSON: it is a dependency of Nereus, so `--project=<checkout>` resolves it.
+# `JSON` only resolved where the user's global Julia environment happened to have it.
 _INTROSPECT = r'''
-using Nereus, JSON
+using Nereus, JSON3
 d = Dict{String,Vector{String}}()
 for (name, fn) in Nereus.ENGINES
     ks = String.(Base.kwarg_decl(first(methods(fn))))
     d[name] = filter(k -> !endswith(k, "..."), ks)
 end
-print(JSON.json(d))
+print(JSON3.write(d))
 '''
 
 
@@ -90,3 +92,33 @@ def test_default_engine_carries_no_values():
     wire = engines.DEFAULT.to_wire()
     assert wire["engine"] == "pt_emcee"
     assert wire["options"] == {}
+
+
+def test_init_strategy_is_one_the_sampler_implements():
+    """`init_strategy` used to cross the wire unchecked, and Julia ran the prior
+    draw for any value it did not know: `PTEmcee(init_strategy="map")` gave the
+    "prior" fit, silently. The values are the ones each sampler implements."""
+    assert engines.PTEmcee(init_strategy="map_scatter").options() == {
+        "init_strategy": "map_scatter"}
+    assert engines.PTEmcee(init_strategy="pathfinder").options() == {
+        "init_strategy": "pathfinder"}
+    # "map" was in this field's type from the start: it means the MAP start.
+    assert engines.PTEmcee(init_strategy="map").to_wire()["options"] == {
+        "init_strategy": "map_scatter"}
+    for bad in ("ball", "MAP", "map-scatter"):
+        with pytest.raises(ValueError, match="'prior', 'pathfinder', 'map_scatter'"):
+            engines.PTEmcee(init_strategy=bad)
+    assert engines.PT(init_strategy="pathfinder").options() == {
+        "init_strategy": "pathfinder"}
+    with pytest.raises(ValueError, match="pt"):
+        engines.PT(init_strategy="map_scatter")
+    # pt_whitening draws every walker from the prior.
+    assert engines.PTWhitening(init_strategy="prior").options() == {
+        "init_strategy": "prior"}
+    with pytest.raises(ValueError, match="pt_whitening"):
+        engines.PTWhitening(init_strategy="pathfinder")
+    # Set after construction: caught when the options are built.
+    e = engines.PTEmcee()
+    e.init_strategy = "ball"
+    with pytest.raises(ValueError):
+        e.to_wire()
