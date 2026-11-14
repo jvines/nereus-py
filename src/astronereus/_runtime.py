@@ -33,7 +33,7 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-JULIA_VERSION = "1.11.9"
+JULIA_VERSION = "1.13.3"
 
 # Guards the auto-install path in julia_env(). install() calls warm(), warm()
 # calls julia_env(), and julia_env() auto-installs when nothing is there -- so a
@@ -374,7 +374,7 @@ def _verify(path: Path, sha256: str | None) -> None:
 # on GitHub directly: a GitHub-only tag is pruned by the next mirror sync,
 # which demotes the release to a draft and makes these URLs 404. There is no
 # intermediate staging repository -- the mirror is direct. See DEPLOYMENT.md.
-_REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.8.10"
+_REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.9.0"
 
 #: The Nereus version inside the bundles below. `pip install -U astronereus`
 #: cannot touch the cached runtime, and `PY_API_VERSION` only catches an
@@ -383,18 +383,18 @@ _REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.8.10"
 #: v0.5.3 with no sign of it. So a cached runtime older than this is refetched
 #: on the next start (`is_stale`); where that is switched off, `Session.start()`
 #: compares this against `ping`'s `nereus` field and says what to do about it.
-RUNTIME_VERSION = "0.8.10"
+RUNTIME_VERSION = "0.9.0"
 
 BUNDLES: dict[str, tuple[str, str]] = {
     "macos-arm64": (
-        f"{_REL}/nereus-runtime-1.11.9-macos-arm64.tar.zst",
-        "2f0f226d7abf2fc37c11570cf76668013b659c0255780627cf5798c976385e69"),
+        f"{_REL}/nereus-runtime-1.13.3-macos-arm64.tar.zst",
+        "40ea6dbb1a5790b9b3f04b0d633f2fed0f45dccf85bfb3dbf3e564725d42fd1f"),
     "linux-x86_64": (
-        f"{_REL}/nereus-runtime-1.11.9-linux-x86_64.tar.zst",
-        "03440e03511e72d9eee830f83b29c2aeaceba2016605f3e19d31b873d699583c"),
+        f"{_REL}/nereus-runtime-1.13.3-linux-x86_64.tar.zst",
+        "3f37b70ef54dfc42240895c4d3a4007dc7393b19a6239596080d0d2ef880e304"),
     "linux-aarch64": (
-        f"{_REL}/nereus-runtime-1.11.9-linux-aarch64.tar.zst",
-        "a0a0f94e2f0c16277f7ee4f9c52a6080aa4d7142a374894db83c4fdb358907d2"),
+        f"{_REL}/nereus-runtime-1.13.3-linux-aarch64.tar.zst",
+        "122f4398a422d1068de4a2ae3af662dcf4552647e6da607df659a3895150fc46"),
 }
 
 
