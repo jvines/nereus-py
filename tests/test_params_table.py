@@ -98,3 +98,13 @@ def test_every_estimate_row_has_six_columns():
     assert len(rows) == 3
     assert all(len(r) == 6 for r in rows)
     assert all(r[1] and r[2] and r[3] for r in rows), "no blank value/err cells"
+
+
+def test_astrometric_jitter_is_in_mas():
+    # sigma_iad_<instrument> (along-scan) and sigma_as_<imager> are mas, not the
+    # m/s an RV jitter gets from the generic `sigma` prefix.
+    from astronereus._result import _unit_of
+    assert _unit_of("sigma_iad_GaiaDR4_3937211745905473024") == "mas"
+    assert _unit_of("sigma_iad_HIP12345") == "mas"
+    assert _unit_of("sigma_as_NIRC2") == "mas"
+    assert _unit_of("sigma_FEROS") == "m/s"
