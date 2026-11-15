@@ -1353,6 +1353,15 @@ res = s.fit_joint(ds.rv, ast, planets=1,
 | `{"catalogue": "gaia_dr4", "source_id": 1457486023639239296}` | Gaia DR4 epoch astrometry, read from the pre-release epoch-astrometry table (fetched and cached on first use). Add `"path": "..."` to read a local copy |
 | a list of the above | Several instruments, merged (Hipparcos + Gaia). Several `Astrometry` channels in one `fit_joint` accumulate the same way |
 
+Each entry gets its own along-scan jitter, `sigma_iad_<name>` (mas), added in quadrature to
+its abscissa errors, as each spectrograph gets a `sigma_<inst>`. `<name>` is the entry's
+`"instrument"` if you give one, else `HIP<hip>` or `GaiaDR4_<source_id>`. Add
+`"jitter": False` to an entry to fit it with its errors as quoted. `PTEmcee` holds the
+jitters at zero for the first part of burn-in, so the walkers find the orbit before a
+jitter can absorb the reflex motion; other engines do not, so start them from a fit
+without jitter (`init`). `r.raw["ppc"]["iad_red_chi2_per_inst"]` gives each entry's χ²/N
+at the best fit.
+
 Gaia DR4 alone, no RVs (Gaia-4 b):
 
 ```python
@@ -1538,6 +1547,7 @@ from your data dict.
 | `inc_k1`, `Omega_k1` | inclination, node (rad), astrometric planets | sine, uniform on `[0, 2 pi]` |
 | `M_sec_k1`, `a_k1` | companion mass (M_sun), semi-major axis (AU), by parametrization | log-uniform |
 | `plx`, `M_pri` | parallax (mas), primary mass (M_sun) in astrometric fits | set these yourself, see [Astrometry](#astrometry) |
+| `sigma_iad_<name>` | along-scan jitter of one epoch-astrometry entry (mas) | modified Jeffreys, knee at the median quoted error, capped at 10 times it |
 | `rho_circ_k<k>`, `eta_k<k>` | circular-equivalent stellar density (solar units) and the orbit's coordinate along its curve of constant density factor (rad), for a transiting planet with free e; they replace `rho_s` and the eccentricity coordinates as sampled parameters (`density="rho_star"` restores those) | none to give: derived from the priors on `rho_s` and e, see [RV and transit together](#rv-and-transit-together) |
 | `lambda_k1`, `v_sin_i_star` | spin-orbit angle (rad), projected rotation (m/s) in RM fits | uniform `[-pi, pi]`, log-uniform |
 | `offset_<inst>`, `jitter_<inst>`, `q1_<inst>`, `q2_<inst>`, `rho_s` | photometry offset, jitter, limb darkening, stellar density | see [Transits](#transits) |
