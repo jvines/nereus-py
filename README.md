@@ -1620,6 +1620,15 @@ print(r)
 | `RJMCMC` | `rjmcmc` | classic reversible-jump baseline | `n_samples`, `n_warmup`, `n_chains` | no |
 | `Daedalus` | `daedalus` | trans-dimensional posterior and nested evidence in one run | `n_live`, `dlogz`, `n_mcmc`, `informed_birth_fraction` | yes |
 
+If burn-in ends with the walkers split between modes (say most at a 2P alias
+and a few at P), the recorded chains catch the migration and the posterior comes
+out a mixture. `PTEmcee`, `TransdimPTEmcee` and `Ensemble` take
+`extend_burnin=True` (off by default; Nereus after 0.9.1): burn-in then goes on
+while the walkers are split, the steps come out of `n_steps`, and
+`summary["n_burnin_used"]` says where recording began. It stops at `max_burnin`
+(default `n_burnin` plus half the remaining steps) and warns, naming the
+parameter that separates the modes, if they are still split there.
+
 Every field of every class is a dataclass attribute, so `help(engines.PTEmcee)` lists
 them all. The full option lists, with Nereus's defaults, are in
 [samplers.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/samplers.md); how
