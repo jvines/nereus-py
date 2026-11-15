@@ -1629,6 +1629,14 @@ while the walkers are split, the steps come out of `n_steps`, and
 (default `n_burnin` plus half the remaining steps) and warns, naming the
 parameter that separates the modes, if they are still split there.
 
+Every run of those engines and `PTWhitening` also checks afterwards whether
+walkers were still settling into the main mode while being recorded, and warns
+with the step they got there by (`summary["burnin_trim"]`). `trim_burnin=True`
+(off by default; Nereus after 0.9.1) drops the draws before it and recomputes
+the parameters, diagnostics and log Z on the rest. It refuses, with a warning,
+when walkers are still split at the end or the cut would leave under a quarter
+of the run.
+
 Every field of every class is a dataclass attribute, so `help(engines.PTEmcee)` lists
 them all. The full option lists, with Nereus's defaults, are in
 [samplers.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/samplers.md); how
