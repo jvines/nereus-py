@@ -199,6 +199,15 @@ class PTEmcee(Engine):
     # with R-hat at 1.0002.
     # 0.5 by default in Julia; `0` restores the stretch-only kernel draw for draw.
     de_move: float | None = None
+    # Nereus after 0.9.1, opt-in. At the end of burn-in, if the stranded-walker
+    # pruning would still move a beta = 1 walker (the cold rung is split between
+    # modes, e.g. most walkers in a 2P alias and a few at P), burn-in goes on in
+    # 50-step passes with the pruning running, and recording starts once the
+    # rung is in one mode. Steps come out of n_steps, as n_burnin's do; burn-in
+    # stops at `max_burnin` (default n_burnin + (n_steps - n_burnin) // 2) and
+    # warns if still split. summary["n_burnin_used"] says where it ended.
+    extend_burnin: bool | None = None
+    max_burnin: int | None = None
     # Ending production early without losing the draws (Nereus 0.9.0 and later; see
     # `Stopping`). `convergence_stop` and its thresholds are above.
     max_seconds: float | None = None
@@ -357,6 +366,8 @@ class TransdimPTEmcee(Engine):
     prune_stranded: bool | None = None       # Nereus >= 0.6.0; see PTEmcee
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
     de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
+    extend_burnin: bool | None = None        # Nereus after 0.9.1; see PTEmcee
+    max_burnin: int | None = None            # Nereus after 0.9.1; see PTEmcee
     # Nereus >= 0.7.0, and trans-dim only -- pt_emcee and pt_whitening do not
     # take it. Tempered probability, per walker, planet and step, of proposing
     # the (Mo, omega) -> (Mo + d, omega - d) slide along the mean-longitude
@@ -466,6 +477,8 @@ class Ensemble(Engine):
     thinning: int | None = None
     seed: int | None = None
     de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
+    extend_burnin: bool | None = None        # Nereus after 0.9.1; see PTEmcee
+    max_burnin: int | None = None            # in saved draws, like n_burnin
 
 
 @dataclass
