@@ -1358,8 +1358,8 @@ its abscissa errors, as each spectrograph gets a `sigma_<inst>`. `<name>` is the
 `"instrument"` if you give one, else `HIP<hip>` or `GaiaDR4_<source_id>`. Add
 `"jitter": False` to an entry to fit it with its errors as quoted. `PTEmcee` holds the
 jitters at zero for the first part of burn-in, so the walkers find the orbit before a
-jitter can absorb the reflex motion; other engines do not, so start them from a fit
-without jitter (`init`). `r.raw["ppc"]["iad_red_chi2_per_inst"]` gives each entry's χ²/N
+jitter can absorb the reflex motion. Other engines do not: check what they find against
+a fit with `"jitter": False`. `r.raw["ppc"]["iad_red_chi2_per_inst"]` gives each entry's χ²/N
 at the best fit.
 
 Gaia DR4 alone, no RVs (Gaia-4 b):
