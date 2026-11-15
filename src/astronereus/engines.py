@@ -124,6 +124,7 @@ class PTWhitening(Engine):
     proposal_scale: float | None = None
     warmup_swaps: int | None = None
     whiten_window: int | None = None
+    trim_burnin: bool | None = None          # Nereus after 0.9.1; see PTEmcee
     whiten_refresh: int | None = None
     betas: Sequence[float] | None = None
     # pt_whitening draws every walker from the prior; it took "pathfinder" and
@@ -208,6 +209,14 @@ class PTEmcee(Engine):
     # warns if still split. summary["n_burnin_used"] says where it ended.
     extend_burnin: bool | None = None
     max_burnin: int | None = None
+    # Nereus after 0.9.1, opt-in. Every run tests whether its beta = 1 walkers
+    # were still settling into the main mode during the recorded run and warns
+    # if so (summary["burnin_trim"], fit_health "burnin_settling"). True drops
+    # the recorded steps before the last walker reached the main mode and
+    # recomputes the draws, diagnostics and evidence on the rest. Refused, with
+    # a warning, if walkers are still split at the end or the cut would leave
+    # under a quarter of the recorded steps.
+    trim_burnin: bool | None = None
     # Ending production early without losing the draws (Nereus 0.9.0 and later; see
     # `Stopping`). `convergence_stop` and its thresholds are above.
     max_seconds: float | None = None
@@ -368,6 +377,7 @@ class TransdimPTEmcee(Engine):
     de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
     extend_burnin: bool | None = None        # Nereus after 0.9.1; see PTEmcee
     max_burnin: int | None = None            # Nereus after 0.9.1; see PTEmcee
+    trim_burnin: bool | None = None          # Nereus after 0.9.1; see PTEmcee
     # Nereus >= 0.7.0, and trans-dim only -- pt_emcee and pt_whitening do not
     # take it. Tempered probability, per walker, planet and step, of proposing
     # the (Mo, omega) -> (Mo + d, omega - d) slide along the mean-longitude
@@ -479,6 +489,7 @@ class Ensemble(Engine):
     de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
     extend_burnin: bool | None = None        # Nereus after 0.9.1; see PTEmcee
     max_burnin: int | None = None            # in saved draws, like n_burnin
+    trim_burnin: bool | None = None          # Nereus after 0.9.1; see PTEmcee
 
 
 @dataclass
