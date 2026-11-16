@@ -622,8 +622,15 @@ Two routes exist:
 | transits | `fit_transit(lc, ...)` | `{instrument: {t, flux, flux_err}}` |
 | Doppler tomography | `fit_tomography(nights, ...)` | one `Night` per transit |
 | RV + transit | `fit_joint(RV(...), Transit(...), ...)`, or `session.run_job(cfg)` | channels, or a job config |
-| Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
+| Rossiter-McLaughlin | `fit_rm(rv, phot=...)`, or `session.run_job(cfg)` | `{instrument: {t, rv, rv_err}}` and a `Transit`, or a job config |
+| TTV | `fit_ttv(transit_times, ...)`, or `session.run_job(cfg)` | transit-time blocks or one planet's table, or a job config |
+| spectroscopic binaries | `fit_binary(primary, secondary=None, ...)`, or `session.run_job(cfg)` | `{instrument: {t, rv, rv_err}}` or an `RV` channel per component, or a job config |
 | astrometry, and anything joined to it | see [Astrometry](#astrometry) | |
+
+`fit_rm`, `fit_ttv` and `fit_binary` build a job config and run it. Of the model
+keywords they take the star's (`M_s`, `R_s`, `T_eff`, ...), `stability`,
+`phot_trend_order`, `sharing`, `ttv_backend`, `time_anchor` and `parametrization`,
+and refuse any other; put other options in a `run_job` config.
 
 A `run_job` config is documented in
 [JOB_CONFIG.md](https://github.com/jvines/Nereus.jl/blob/main/docs/JOB_CONFIG.md);
@@ -926,7 +933,7 @@ show(r)
 
 ### Rossiter-McLaughlin
 
-In this release, run this mode through a job config.
+`fit_rm(rv, phot=Transit(...))` runs this mode, or a job config with the blocks below.
 
 RM needs RV through the transit and photometry of the same transit: the kernel takes
 the geometry from the light curve. The kernel is chosen by planet mode.
@@ -1066,7 +1073,8 @@ with astronereus.session() as s:
 
 ### Transit timing variations
 
-In this release, run this mode through a job config.
+`fit_ttv(transit_times, planets=...)` runs this mode, or a job config with the blocks
+below.
 
 Two models, chosen by planet mode. `PM_TTV` (`RVPM_TTV` with RV) frees one timing
 offset per transit, `ttv_k<k>_t<i>` (days); `ttv_n_transits` gives the count per
@@ -1160,7 +1168,8 @@ show(r)
 
 ### Spectroscopic binaries
 
-In this release, run this mode through a job config.
+`fit_binary(primary, secondary)` runs this mode, with an instrument map or an `RV`
+channel per component, or a job config with the blocks below.
 
 A double-lined binary is one orbit with two amplitudes, `K_A_k1` and `K_B_k1` (m/s).
 Tag every RV row with a `component` (`"primary"` or `"secondary"`); the systemic
@@ -2017,11 +2026,6 @@ better form for several jobs in a row.
 These routes exist in the Python API but do not work in this release. Use the route
 given instead.
 
-- `fit_rm`, `fit_ttv` and `fit_binary` run as a job config (Nereus after 0.9.1; up to
-  0.9.1 they failed). Of the model keywords they take the star's (`M_s`, `R_s`,
-  `T_eff`, ...), `stability`, `phot_trend_order`, `sharing`, `ttv_backend`,
-  `time_anchor` and `parametrization`; any other is refused. Put other options in a
-  `s.run_job(cfg)` config.
 - `fit_rv(noise=[...])` fails (a dict cannot be converted to a noise model). Put
   `noise_models` in the `model` block of a `run_job` config ([Trends and noise
   models](#trends-and-noise-models)).
