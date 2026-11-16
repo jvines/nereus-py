@@ -4,7 +4,7 @@ Python client for [Nereus](https://github.com/jvines/Nereus.jl), a Julia package
 Bayesian orbit inference: radial velocities, transits, absolute and relative
 astrometry, Rossiter-McLaughlin, Doppler tomography, TTVs, spectroscopic binaries
 and trans-dimensional planet counts, alone or jointly. This page documents
-astronereus 0.4.40 against Nereus 0.9.1. Source:
+astronereus 0.4.41 against Nereus 0.9.2. Source:
 [jvines/nereus-py](https://github.com/jvines/nereus-py); licence:
 [LICENSE](https://github.com/jvines/nereus-py/blob/main/LICENSE).
 
@@ -171,7 +171,7 @@ with astronereus.session() as s:
 ```
 
 ```
-{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.1', 'pong': True}
+{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.2', 'pong': True}
 ```
 
 Everything the module-level functions do is also a method on the session
@@ -622,8 +622,15 @@ Two routes exist:
 | transits | `fit_transit(lc, ...)` | `{instrument: {t, flux, flux_err}}` |
 | Doppler tomography | `fit_tomography(nights, ...)` | one `Night` per transit |
 | RV + transit | `fit_joint(RV(...), Transit(...), ...)`, or `session.run_job(cfg)` | channels, or a job config |
-| Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
+| Rossiter-McLaughlin | `fit_rm(rv, phot=...)`, or `session.run_job(cfg)` | `{instrument: {t, rv, rv_err}}` and a `Transit`, or a job config |
+| TTV | `fit_ttv(transit_times, ...)`, or `session.run_job(cfg)` | transit-time blocks or one planet's table, or a job config |
+| spectroscopic binaries | `fit_binary(primary, secondary=None, ...)`, or `session.run_job(cfg)` | `{instrument: {t, rv, rv_err}}` or an `RV` channel per component, or a job config |
 | astrometry, and anything joined to it | see [Astrometry](#astrometry) | |
+
+`fit_rm`, `fit_ttv` and `fit_binary` build a job config and run it. Of the model
+keywords they take the star's (`M_s`, `R_s`, `T_eff`, ...), `stability`,
+`phot_trend_order`, `sharing`, `ttv_backend`, `time_anchor` and `parametrization`,
+and refuse any other; put other options in a `run_job` config.
 
 A `run_job` config is documented in
 [JOB_CONFIG.md](https://github.com/jvines/Nereus.jl/blob/main/docs/JOB_CONFIG.md);
@@ -926,7 +933,7 @@ show(r)
 
 ### Rossiter-McLaughlin
 
-In this release, run this mode through a job config.
+`fit_rm(rv, phot=Transit(...))` runs this mode, or a job config with the blocks below.
 
 RM needs RV through the transit and photometry of the same transit: the kernel takes
 the geometry from the light curve. The kernel is chosen by planet mode.
@@ -1066,16 +1073,39 @@ with astronereus.session() as s:
 
 ### Transit timing variations
 
-In this release, run this mode through a job config.
+`fit_ttv(transit_times, planets=...)` runs this mode, or a job config with the blocks
+below.
 
 Two models, chosen by planet mode. `PM_TTV` (`RVPM_TTV` with RV) frees one timing
 offset per transit, `ttv_k<k>_t<i>` (days); `ttv_n_transits` gives the count per
-planet slot, keyed by slot number as a string. The default prior on each offset is a
-normal of width 1 day, so set a tighter one. `RVPM_TTV_NB` predicts the timings from
+planet, keyed by planet number as a string. The default prior on each offset is a
+normal of width 1 day, so set a tighter one. Offsets are numbered from the planet's
+first observed transit, whatever the time anchor; releases up to 0.9.1 numbered them
+from Tc, so transits before Tc got none. For sparse timings, `ttv_epochs`
+(`{"1": [0, 3, 40]}`, transits counted from the first observed one) frees offsets on
+the listed transits only. `RVPM_TTV_NB` predicts the timings from
 the planets' masses and orbits: it needs two or more planets, and RV to give the
 masses. `ttv_backend` selects the predictor: `"ttvfaster"` (first order, the default)
 or `"nbody"` (full integration, several times slower; give `rr`, `b`, the phase
 `phic` and the eccentricity vector bounded priors).
+
+Measured mid-transit times go in `data.transit_times`, with photometry and RV or on
+their own (Nereus 0.9.2 and later):
+
+```python
+"data": {"transit_times": [{"planet": 1, "time_system": "BJD_TDB",
+                            "values": {"epoch": [...], "tc": [...], "tc_err": [...],
+                                       "source": [...]}}]}
+```
+
+A planet with transit times needs a mode that predicts mid-times (`PM_ONLY`,
+`PM_TTV`, `RVPM`, ...); an `RV_ONLY` one is refused. A `PM_TTV` planet given neither
+`ttv_n_transits` nor `ttv_epochs` gets one offset per measured transit. A time that
+falls on a transit already in the fitted photometry is left out unless the block says
+`"photometry_overlap": "keep"`, and `"jitter": true` adds `sigma_tt_k<k>` (days).
+summary.json reports each planet's χ², O−C residuals and posterior ephemeris under
+`"transit_times"`. `fit_ttv` takes the same blocks, or one planet's table with
+`epoch`, `tc` and `tc_err` columns.
 
 ```python
 import numpy as np
@@ -1138,7 +1168,8 @@ show(r)
 
 ### Spectroscopic binaries
 
-In this release, run this mode through a job config.
+`fit_binary(primary, secondary)` runs this mode, with an instrument map or an `RV`
+channel per component, or a job config with the blocks below.
 
 A double-lined binary is one orbit with two amplitudes, `K_A_k1` and `K_B_k1` (m/s).
 Tag every RV row with a `component` (`"primary"` or `"secondary"`); the systemic
@@ -1620,6 +1651,23 @@ print(r)
 | `RJMCMC` | `rjmcmc` | classic reversible-jump baseline | `n_samples`, `n_warmup`, `n_chains` | no |
 | `Daedalus` | `daedalus` | trans-dimensional posterior and nested evidence in one run | `n_live`, `dlogz`, `n_mcmc`, `informed_birth_fraction` | yes |
 
+If burn-in ends with the walkers split between modes (say most at a 2P alias
+and a few at P), the recorded chains catch the migration and the posterior comes
+out a mixture. `PTEmcee`, `TransdimPTEmcee` and `Ensemble` take
+`extend_burnin=True` (off by default; Nereus 0.9.2 and later): burn-in then goes on
+while the walkers are split, the steps come out of `n_steps`, and
+`summary["n_burnin_used"]` says where recording began. It stops at `max_burnin`
+(default `n_burnin` plus half the remaining steps) and warns, naming the
+parameter that separates the modes, if they are still split there.
+
+Every run of those engines and `PTWhitening` also checks afterwards whether
+walkers were still settling into the main mode while being recorded, and warns
+with the step they got there by (`summary["burnin_trim"]`). `trim_burnin=True`
+(off by default; Nereus 0.9.2 and later) drops the draws before it and recomputes
+the parameters, diagnostics and log Z on the rest. It refuses, with a warning,
+when walkers are still split at the end or the cut would leave under a quarter
+of the run.
+
 Every field of every class is a dataclass attribute, so `help(engines.PTEmcee)` lists
 them all. The full option lists, with Nereus's defaults, are in
 [samplers.md](https://github.com/jvines/Nereus.jl/blob/main/docs/src/samplers.md); how
@@ -1978,10 +2026,6 @@ better form for several jobs in a row.
 These routes exist in the Python API but do not work in this release. Use the route
 given instead.
 
-- `fit_rm`, `fit_ttv` and `fit_binary` fail: the job they send carries no priors, or
-  `PriorSpec` objects where Nereus wants dicts. Run Rossiter-McLaughlin, TTV and
-  spectroscopic-binary fits through `s.run_job(cfg)` with a job config, as in the
-  examples above.
 - `fit_rv(noise=[...])` fails (a dict cannot be converted to a noise model). Put
   `noise_models` in the `model` block of a `run_job` config ([Trends and noise
   models](#trends-and-noise-models)).

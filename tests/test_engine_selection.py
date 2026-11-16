@@ -96,3 +96,28 @@ def test_de_move_is_reachable(cls):
     assert cls(de_move=0).options() == {"de_move": 0}
     assert cls(de_move=0.3).options() == {"de_move": 0.3}
     assert cls().options() == {}
+
+
+@pytest.mark.parametrize("cls", [engines.PTEmcee, engines.TransdimPTEmcee, engines.Ensemble])
+def test_extend_burnin_is_opt_in_and_reachable(cls):
+    """Burn-in that runs on while the cold rung is split is off by default in
+    Julia; the client sends nothing unless asked, and both knobs reach run_job."""
+    assert cls().options() == {}
+    assert cls(extend_burnin=True).options() == {"extend_burnin": True}
+    assert cls(extend_burnin=True, max_burnin=8000).options() == {
+        "extend_burnin": True, "max_burnin": 8000}
+
+
+def test_extend_burnin_not_offered_where_julia_rejects_it():
+    """pt_whitening has no stranded-walker pruning to test the split with, and
+    run_job rejects the keyword there."""
+    assert not hasattr(engines.PTWhitening(), "extend_burnin")
+
+
+@pytest.mark.parametrize("cls", [engines.PTEmcee, engines.TransdimPTEmcee,
+                                 engines.PTWhitening, engines.Ensemble])
+def test_trim_burnin_is_opt_in_and_reachable(cls):
+    """The post-hoc burn-in trim is off by default in Julia; the client sends
+    nothing unless asked."""
+    assert cls().options() == {}
+    assert cls(trim_burnin=True).options() == {"trim_burnin": True}

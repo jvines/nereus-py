@@ -431,23 +431,77 @@ class Night:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
 
+def _transit_time_blocks(tt: Any) -> Any:
+    """`transit_times` as the runtime reads it: a list of per-planet blocks
+    `{"planet", "time_system", "values": {"epoch", "tc", "tc_err", "source"?}}`
+    (the job-config format). A block or a list of them passes through; a table
+    with `epoch`, `tc` and `tc_err` columns (a dict of arrays or a DataFrame,
+    `source` optional) becomes planet 1's block in BJD_TDB."""
+    if tt is None:
+        return None
+    if isinstance(tt, Mapping) and "values" in tt:
+        return [dict(tt)]
+    if isinstance(tt, (list, tuple)) and all(isinstance(b, Mapping) for b in tt):
+        return [dict(b) for b in tt]
+    cols = getattr(tt, "columns", None)
+    keys = set(cols) if cols is not None else (set(tt) if isinstance(tt, Mapping) else set())
+    if {"epoch", "tc", "tc_err"} <= keys:
+        values = {"epoch": [int(v) for v in tt["epoch"]],
+                  "tc": [float(v) for v in tt["tc"]],
+                  "tc_err": [float(v) for v in tt["tc_err"]]}
+        if "source" in keys:
+            values["source"] = [str(v) for v in tt["source"]]
+        return [{"planet": 1, "time_system": "BJD_TDB", "values": values}]
+    raise TypeError(
+        "transit_times: give the per-planet data.transit_times blocks "
+        "([{'planet': 1, 'time_system': 'BJD_TDB', 'values': {'epoch': [...], "
+        "'tc': [...], 'tc_err': [...]}}]), or one planet's table with epoch, tc "
+        "and tc_err columns (BJD_TDB, days)")
+
+
 @dataclass
 class TTV(Channel):
-    """Transit timing variations. `nbody=True` selects the N-body model."""
+    """Transit timing variations: one free time offset per transit.
+
+    `transit_times`: measured mid-transit times, as the per-planet blocks of
+    `data.transit_times` or one planet's table with `epoch`, `tc` and `tc_err`
+    columns (BJD_TDB, days; `source` optional)."""
     source = "TTV"
     transit_times: Any = None
-    nbody: bool = False
 
     def __post_init__(self):
-        self.source = "TTV_NB" if self.nbody else "TTV"
+        self.transit_times = _transit_time_blocks(self.transit_times)
 
 
 @dataclass
 class SB2(Channel):
-    """Double-lined spectroscopic binary: both components' velocities."""
+    """Double-lined spectroscopic binary: both components' velocities.
+
+    `primary` and `secondary` are instrument maps (`{instrument: {t, rv, rv_err}}`)
+    or `RV` channels, whose map is taken; the runtime fits the velocities only, so
+    an `RV` with options set (jitter, trend, sharing, ...) is refused rather than
+    sent without them."""
     source = "SB"
     primary: Any = None
     secondary: Any = None
+
+    def __post_init__(self):
+        self.primary = _sb_velocities(self.primary, "primary")
+        self.secondary = _sb_velocities(self.secondary, "secondary")
+
+
+def _sb_velocities(v: Any, which: str) -> Any:
+    if not isinstance(v, RV):
+        return v
+    default = RV()
+    set_ = [f for f in ("jitter", "trend_order", "gamma_per_instrument", "share",
+                        "marginalize_gamma", "indicators")
+            if getattr(v, f) != getattr(default, f)]
+    if set_:
+        raise TypeError(
+            f"fit_binary {which}: the RV channel sets {', '.join(set_)}, which the "
+            "binary fit does not take; pass its velocities only, or use run_job")
+    return dict(v.data)
 
 
 __all__ = ["Channel", "RV", "Transit", "Astrometry", "RM", "Night",

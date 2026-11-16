@@ -58,10 +58,9 @@ _MODEL_KW = (
 # The stellar keywords that feed only the derived table (Nereus
 # `_STAR_DERIVED_KEYS`; `M_s` and `R_s` are model keywords and are in
 # `_MODEL_KW`): T_eff (K), J_mag, K_mag, Ab (Bond albedo) and the 1-sigma of M*,
-# R* and T_eff. Julia's fit_rv, fit_transit, fit_astrometry and fit_joint read
-# them; fit_rm, fit_ttv and fit_binary do not (fit_rm and fit_binary take a
-# `star` dict instead), so those reject them. tests/test_star_keywords.py checks
-# this tuple against Nereus.
+# R* and T_eff. Every fit_* reads them (fit_rm, fit_ttv and fit_binary route
+# them into their job config's star block, Nereus 0.9.2 and later).
+# tests/test_star_keywords.py checks this tuple against Nereus.
 _STAR_KW = ("T_eff", "J_mag", "K_mag", "Ab",
             "sigma_M_s", "sigma_R_s", "sigma_T_eff")
 
@@ -255,7 +254,8 @@ def fit_rm(rv_in_transit, *, phot,
             lambda_prior=lambda_prior)
     ph = phot if isinstance(phot, Transit) else Transit(data=phot)
     return _run(_sess(session), "fit_rm", [ch, ph], planets=1,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                star=True, **model_kw)
 
 
 def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
@@ -305,14 +305,25 @@ def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
     return JobResult(_sess(session).raw("fit_tomography", payload))
 
 
-def fit_ttv(transit_times, *, planets: int = 2, nbody: bool = False,
+def fit_ttv(transit_times, *, planets: int = 2,
+            ttv_n_transits: int | dict | None = None,
+            ttv_epochs: dict | None = None,
             engine: _eng.Engine | None = None, stopping: Stopping | None = None,
             output_dir=None, priors: dict | None = None,
             session=None, **model_kw) -> Any:
-    """Fit transit timing variations."""
-    ch = TTV(transit_times=transit_times, nbody=nbody)
+    """Fit transit timing variations.
+
+    One free time offset per transit listed in `ttv_epochs` ({planet: [epochs]},
+    counted from the first observed transit) or per transit 0..N-1 for
+    `ttv_n_transits` (N, or {planet: N}). Given neither, it takes one offset per
+    measured transit (Nereus 0.9.2 and later). N-body TTVs need RV for the masses:
+    use `run_job` with `RVPM_TTV_NB`."""
+    ch = TTV(transit_times=transit_times)
+    extra = {k: v for k, v in (("ttv_n_transits", ttv_n_transits),
+                               ("ttv_epochs", ttv_epochs)) if v is not None}
     return _run(_sess(session), "fit_ttv", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                extra=extra or None, star=True, **model_kw)
 
 
 def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
@@ -322,7 +333,8 @@ def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
     """Fit a spectroscopic binary (SB1 if `secondary` is None, else SB2)."""
     ch = SB2(primary=primary, secondary=secondary)
     return _run(_sess(session), "fit_binary", [ch], planets=1,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                star=True, **model_kw)
 
 
 # --- several techniques together ---------------------------------------------
