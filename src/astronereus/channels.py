@@ -431,15 +431,48 @@ class Night:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
 
+def _transit_time_blocks(tt: Any) -> Any:
+    """`transit_times` as the runtime reads it: a list of per-planet blocks
+    `{"planet", "time_system", "values": {"epoch", "tc", "tc_err", "source"?}}`
+    (the job-config format). A block or a list of them passes through; a table
+    with `epoch`, `tc` and `tc_err` columns (a dict of arrays or a DataFrame,
+    `source` optional) becomes planet 1's block in BJD_TDB."""
+    if tt is None:
+        return None
+    if isinstance(tt, Mapping) and "values" in tt:
+        return [dict(tt)]
+    if isinstance(tt, (list, tuple)) and all(isinstance(b, Mapping) for b in tt):
+        return [dict(b) for b in tt]
+    cols = getattr(tt, "columns", None)
+    keys = set(cols) if cols is not None else (set(tt) if isinstance(tt, Mapping) else set())
+    if {"epoch", "tc", "tc_err"} <= keys:
+        values = {"epoch": [int(v) for v in tt["epoch"]],
+                  "tc": [float(v) for v in tt["tc"]],
+                  "tc_err": [float(v) for v in tt["tc_err"]]}
+        if "source" in keys:
+            values["source"] = [str(v) for v in tt["source"]]
+        return [{"planet": 1, "time_system": "BJD_TDB", "values": values}]
+    raise TypeError(
+        "transit_times: give the per-planet data.transit_times blocks "
+        "([{'planet': 1, 'time_system': 'BJD_TDB', 'values': {'epoch': [...], "
+        "'tc': [...], 'tc_err': [...]}}]), or one planet's table with epoch, tc "
+        "and tc_err columns (BJD_TDB, days)")
+
+
 @dataclass
 class TTV(Channel):
-    """Transit timing variations. `nbody=True` selects the N-body model."""
+    """Transit timing variations. `nbody=True` selects the N-body model.
+
+    `transit_times`: measured mid-transit times, as the per-planet blocks of
+    `data.transit_times` or one planet's table with `epoch`, `tc` and `tc_err`
+    columns (BJD_TDB, days; `source` optional)."""
     source = "TTV"
     transit_times: Any = None
     nbody: bool = False
 
     def __post_init__(self):
         self.source = "TTV_NB" if self.nbody else "TTV"
+        self.transit_times = _transit_time_blocks(self.transit_times)
 
 
 @dataclass
