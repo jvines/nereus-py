@@ -83,23 +83,17 @@ _STAR = dict(T_eff=4730, J_mag=10.1, K_mag=9.4, Ab=0.3,
     ("fit_transit", lambda s, kw: _fit.fit_transit(_TR.data, session=s, **kw)),
     ("fit_astrometry", lambda s, kw: _fit.fit_astrometry(iad="x", session=s, **kw)),
     ("fit_joint", lambda s, kw: _fit.fit_joint(_RV, _TR, session=s, **kw)),
+    # these three route them into their job config's star block (Nereus after 0.9.1)
+    ("fit_rm", lambda s, kw: _fit.fit_rm([], phot=_TR.data, session=s, **kw)),
+    ("fit_ttv", lambda s, kw: _fit.fit_ttv([], session=s, **kw)),
+    ("fit_binary", lambda s, kw: _fit.fit_binary({}, session=s, **kw)),
 ])
-def test_star_keywords_reach_the_four_that_read_them(name, call):
+def test_star_keywords_reach_every_fit(name, call):
     s = _Session()
     call(s, dict(M_s=0.767, R_s=0.754, **_STAR))
     for k, v in _STAR.items():
         assert s.payload[k] == v
     assert s.payload["M_s"] == 0.767
-
-
-@pytest.mark.parametrize("call", [
-    lambda s: _fit.fit_rm([], phot=_TR.data, session=s, T_eff=4730),
-    lambda s: _fit.fit_ttv([], session=s, sigma_M_s=0.02),
-    lambda s: _fit.fit_binary({}, session=s, Ab=0.3),
-])
-def test_the_rest_do_not_accept_them(call):
-    with pytest.raises(TypeError, match="unknown keyword"):
-        call(_Session())
 
 
 # --- the Transit channel's other options ------------------------------------
