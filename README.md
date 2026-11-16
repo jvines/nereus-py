@@ -2017,10 +2017,11 @@ better form for several jobs in a row.
 These routes exist in the Python API but do not work in this release. Use the route
 given instead.
 
-- `fit_rm`, `fit_ttv` and `fit_binary` fail: the job they send carries no priors, or
-  `PriorSpec` objects where Nereus wants dicts. Run Rossiter-McLaughlin, TTV and
-  spectroscopic-binary fits through `s.run_job(cfg)` with a job config, as in the
-  examples above.
+- `fit_rm`, `fit_ttv` and `fit_binary` run as a job config (Nereus after 0.9.1; up to
+  0.9.1 they failed). Of the model keywords they take the star's (`M_s`, `R_s`,
+  `T_eff`, ...), `stability`, `phot_trend_order`, `sharing`, `ttv_backend`,
+  `time_anchor` and `parametrization`; any other is refused. Put other options in a
+  `s.run_job(cfg)` config.
 - `fit_rv(noise=[...])` fails (a dict cannot be converted to a noise model). Put
   `noise_models` in the `model` block of a `run_job` config ([Trends and noise
   models](#trends-and-noise-models)).
