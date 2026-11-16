@@ -324,7 +324,6 @@ function _fit_dispatch(op::String, payload)
     elseif op == "fit_ttv"
         c = isempty(chs) ? Dict{String,Any}() : chs[1]
         Base.invokelatest(f; transit_times = get(c, "transit_times", nothing),
-                          nbody = Bool(get(c, "nbody", false)),
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_binary"
         # fit_binary takes NO `planets` keyword: the companion count is fixed

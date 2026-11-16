@@ -60,3 +60,13 @@ def test_transit_time_jitter_and_offsets_are_in_days():
     assert _unit_of("sigma_tt_k1") == "d"
     assert _unit_of("ttv_k1_t3") == "d"
     assert _unit_of("sigma_HARPS") == "m/s"
+
+
+def test_no_nbody_option_on_the_ttv_entry_points():
+    # N-body TTVs need RV for the masses, which fit_ttv does not take.
+    import inspect
+    assert "nbody" not in inspect.signature(_fit.fit_ttv).parameters
+    with pytest.raises(TypeError):
+        _fit.fit_ttv(_TABLE, session=_Session(), nbody=True)
+    with pytest.raises(TypeError):
+        TTV(transit_times=_TABLE, nbody=True)

@@ -461,17 +461,15 @@ def _transit_time_blocks(tt: Any) -> Any:
 
 @dataclass
 class TTV(Channel):
-    """Transit timing variations. `nbody=True` selects the N-body model.
+    """Transit timing variations: one free time offset per transit.
 
     `transit_times`: measured mid-transit times, as the per-planet blocks of
     `data.transit_times` or one planet's table with `epoch`, `tc` and `tc_err`
     columns (BJD_TDB, days; `source` optional)."""
     source = "TTV"
     transit_times: Any = None
-    nbody: bool = False
 
     def __post_init__(self):
-        self.source = "TTV_NB" if self.nbody else "TTV"
         self.transit_times = _transit_time_blocks(self.transit_times)
 
 
