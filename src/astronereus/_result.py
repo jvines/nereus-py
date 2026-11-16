@@ -181,6 +181,10 @@ def _unit_of(name: str, stats=None) -> str:
     # relative (`sigma_as_<imager>`), caught before the RV rule below.
     if b.startswith("sigma_iad_") or b.startswith("sigma_as_"):
         return "mas"
+    # Transit-time jitter (`sigma_tt_k<k>`, base `sigma_tt`) and the free TTV
+    # offsets (`ttv_k<k>_t<i>`) are in days.
+    if b == "sigma_tt" or b.startswith("ttv_k"):
+        return "d"
     if b.startswith("gamma") or b.startswith("sigma") or b.startswith("trend"):
         return "m/s"                # RV offset/jitter; photometric ones are
     return ""                       # relative flux, so this is deliberately
