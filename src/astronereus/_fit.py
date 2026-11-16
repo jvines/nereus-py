@@ -305,14 +305,25 @@ def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
     return JobResult(_sess(session).raw("fit_tomography", payload))
 
 
-def fit_ttv(transit_times, *, planets: int = 2, nbody: bool = False,
+def fit_ttv(transit_times, *, planets: int = 2,
+            ttv_n_transits: int | dict | None = None,
+            ttv_epochs: dict | None = None,
             engine: _eng.Engine | None = None, stopping: Stopping | None = None,
             output_dir=None, priors: dict | None = None,
             session=None, **model_kw) -> Any:
-    """Fit transit timing variations."""
-    ch = TTV(transit_times=transit_times, nbody=nbody)
+    """Fit transit timing variations.
+
+    One free time offset per transit listed in `ttv_epochs` ({planet: [epochs]},
+    counted from the first observed transit) or per transit 0..N-1 for
+    `ttv_n_transits` (N, or {planet: N}). Given neither, it takes one offset per
+    measured transit (Nereus after 0.9.1). N-body TTVs need RV for the masses:
+    use `run_job` with `RVPM_TTV_NB`."""
+    ch = TTV(transit_times=transit_times)
+    extra = {k: v for k, v in (("ttv_n_transits", ttv_n_transits),
+                               ("ttv_epochs", ttv_epochs)) if v is not None}
     return _run(_sess(session), "fit_ttv", [ch], planets=planets,
-                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors, **model_kw)
+                engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
+                extra=extra or None, **model_kw)
 
 
 def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,

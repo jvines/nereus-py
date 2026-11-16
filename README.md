@@ -1070,12 +1070,34 @@ In this release, run this mode through a job config.
 
 Two models, chosen by planet mode. `PM_TTV` (`RVPM_TTV` with RV) frees one timing
 offset per transit, `ttv_k<k>_t<i>` (days); `ttv_n_transits` gives the count per
-planet slot, keyed by slot number as a string. The default prior on each offset is a
-normal of width 1 day, so set a tighter one. `RVPM_TTV_NB` predicts the timings from
+planet, keyed by planet number as a string. The default prior on each offset is a
+normal of width 1 day, so set a tighter one. Offsets are numbered from the planet's
+first observed transit, whatever the time anchor; releases up to 0.9.1 numbered them
+from Tc, so transits before Tc got none. For sparse timings, `ttv_epochs`
+(`{"1": [0, 3, 40]}`, transits counted from the first observed one) frees offsets on
+the listed transits only. `RVPM_TTV_NB` predicts the timings from
 the planets' masses and orbits: it needs two or more planets, and RV to give the
 masses. `ttv_backend` selects the predictor: `"ttvfaster"` (first order, the default)
 or `"nbody"` (full integration, several times slower; give `rr`, `b`, the phase
 `phic` and the eccentricity vector bounded priors).
+
+Measured mid-transit times go in `data.transit_times`, with photometry and RV or on
+their own (Nereus after 0.9.1):
+
+```python
+"data": {"transit_times": [{"planet": 1, "time_system": "BJD_TDB",
+                            "values": {"epoch": [...], "tc": [...], "tc_err": [...],
+                                       "source": [...]}}]}
+```
+
+A planet with transit times needs a mode that predicts mid-times (`PM_ONLY`,
+`PM_TTV`, `RVPM`, ...); an `RV_ONLY` one is refused. A `PM_TTV` planet given neither
+`ttv_n_transits` nor `ttv_epochs` gets one offset per measured transit. A time that
+falls on a transit already in the fitted photometry is left out unless the block says
+`"photometry_overlap": "keep"`, and `"jitter": true` adds `sigma_tt_k<k>` (days).
+summary.json reports each planet's χ², O−C residuals and posterior ephemeris under
+`"transit_times"`. `fit_ttv` takes the same blocks, or one planet's table with
+`epoch`, `tc` and `tc_err` columns.
 
 ```python
 import numpy as np
