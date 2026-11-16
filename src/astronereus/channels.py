@@ -475,10 +475,33 @@ class TTV(Channel):
 
 @dataclass
 class SB2(Channel):
-    """Double-lined spectroscopic binary: both components' velocities."""
+    """Double-lined spectroscopic binary: both components' velocities.
+
+    `primary` and `secondary` are instrument maps (`{instrument: {t, rv, rv_err}}`)
+    or `RV` channels, whose map is taken; the runtime fits the velocities only, so
+    an `RV` with options set (jitter, trend, sharing, ...) is refused rather than
+    sent without them."""
     source = "SB"
     primary: Any = None
     secondary: Any = None
+
+    def __post_init__(self):
+        self.primary = _sb_velocities(self.primary, "primary")
+        self.secondary = _sb_velocities(self.secondary, "secondary")
+
+
+def _sb_velocities(v: Any, which: str) -> Any:
+    if not isinstance(v, RV):
+        return v
+    default = RV()
+    set_ = [f for f in ("jitter", "trend_order", "gamma_per_instrument", "share",
+                        "marginalize_gamma", "indicators")
+            if getattr(v, f) != getattr(default, f)]
+    if set_:
+        raise TypeError(
+            f"fit_binary {which}: the RV channel sets {', '.join(set_)}, which the "
+            "binary fit does not take; pass its velocities only, or use run_job")
+    return dict(v.data)
 
 
 __all__ = ["Channel", "RV", "Transit", "Astrometry", "RM", "Night",
