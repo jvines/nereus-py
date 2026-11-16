@@ -1090,7 +1090,7 @@ or `"nbody"` (full integration, several times slower; give `rr`, `b`, the phase
 `phic` and the eccentricity vector bounded priors).
 
 Measured mid-transit times go in `data.transit_times`, with photometry and RV or on
-their own (Nereus after 0.9.1):
+their own (Nereus 0.9.2 and later):
 
 ```python
 "data": {"transit_times": [{"planet": 1, "time_system": "BJD_TDB",
@@ -1654,7 +1654,7 @@ print(r)
 If burn-in ends with the walkers split between modes (say most at a 2P alias
 and a few at P), the recorded chains catch the migration and the posterior comes
 out a mixture. `PTEmcee`, `TransdimPTEmcee` and `Ensemble` take
-`extend_burnin=True` (off by default; Nereus after 0.9.1): burn-in then goes on
+`extend_burnin=True` (off by default; Nereus 0.9.2 and later): burn-in then goes on
 while the walkers are split, the steps come out of `n_steps`, and
 `summary["n_burnin_used"]` says where recording began. It stops at `max_burnin`
 (default `n_burnin` plus half the remaining steps) and warns, naming the
@@ -1663,7 +1663,7 @@ parameter that separates the modes, if they are still split there.
 Every run of those engines and `PTWhitening` also checks afterwards whether
 walkers were still settling into the main mode while being recorded, and warns
 with the step they got there by (`summary["burnin_trim"]`). `trim_burnin=True`
-(off by default; Nereus after 0.9.1) drops the draws before it and recomputes
+(off by default; Nereus 0.9.2 and later) drops the draws before it and recomputes
 the parameters, diagnostics and log Z on the rest. It refuses, with a warning,
 when walkers are still split at the end or the cut would leave under a quarter
 of the run.

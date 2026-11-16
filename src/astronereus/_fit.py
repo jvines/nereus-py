@@ -59,7 +59,7 @@ _MODEL_KW = (
 # `_STAR_DERIVED_KEYS`; `M_s` and `R_s` are model keywords and are in
 # `_MODEL_KW`): T_eff (K), J_mag, K_mag, Ab (Bond albedo) and the 1-sigma of M*,
 # R* and T_eff. Every fit_* reads them (fit_rm, fit_ttv and fit_binary route
-# them into their job config's star block, Nereus after 0.9.1).
+# them into their job config's star block, Nereus 0.9.2 and later).
 # tests/test_star_keywords.py checks this tuple against Nereus.
 _STAR_KW = ("T_eff", "J_mag", "K_mag", "Ab",
             "sigma_M_s", "sigma_R_s", "sigma_T_eff")
@@ -316,7 +316,7 @@ def fit_ttv(transit_times, *, planets: int = 2,
     One free time offset per transit listed in `ttv_epochs` ({planet: [epochs]},
     counted from the first observed transit) or per transit 0..N-1 for
     `ttv_n_transits` (N, or {planet: N}). Given neither, it takes one offset per
-    measured transit (Nereus after 0.9.1). N-body TTVs need RV for the masses:
+    measured transit (Nereus 0.9.2 and later). N-body TTVs need RV for the masses:
     use `run_job` with `RVPM_TTV_NB`."""
     ch = TTV(transit_times=transit_times)
     extra = {k: v for k, v in (("ttv_n_transits", ttv_n_transits),

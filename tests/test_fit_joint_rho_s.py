@@ -83,7 +83,7 @@ _STAR = dict(T_eff=4730, J_mag=10.1, K_mag=9.4, Ab=0.3,
     ("fit_transit", lambda s, kw: _fit.fit_transit(_TR.data, session=s, **kw)),
     ("fit_astrometry", lambda s, kw: _fit.fit_astrometry(iad="x", session=s, **kw)),
     ("fit_joint", lambda s, kw: _fit.fit_joint(_RV, _TR, session=s, **kw)),
-    # these three route them into their job config's star block (Nereus after 0.9.1)
+    # these three route them into their job config's star block (Nereus 0.9.2 and later)
     ("fit_rm", lambda s, kw: _fit.fit_rm([], phot=_TR.data, session=s, **kw)),
     ("fit_ttv", lambda s, kw: _fit.fit_ttv([], session=s, **kw)),
     ("fit_binary", lambda s, kw: _fit.fit_binary({}, session=s, **kw)),
