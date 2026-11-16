@@ -4,7 +4,7 @@ Python client for [Nereus](https://github.com/jvines/Nereus.jl), a Julia package
 Bayesian orbit inference: radial velocities, transits, absolute and relative
 astrometry, Rossiter-McLaughlin, Doppler tomography, TTVs, spectroscopic binaries
 and trans-dimensional planet counts, alone or jointly. This page documents
-astronereus 0.4.40 against Nereus 0.9.1. Source:
+astronereus 0.4.41 against Nereus 0.9.2. Source:
 [jvines/nereus-py](https://github.com/jvines/nereus-py); licence:
 [LICENSE](https://github.com/jvines/nereus-py/blob/main/LICENSE).
 
@@ -171,7 +171,7 @@ with astronereus.session() as s:
 ```
 
 ```
-{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.1', 'pong': True}
+{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.2', 'pong': True}
 ```
 
 Everything the module-level functions do is also a method on the session
@@ -622,8 +622,15 @@ Two routes exist:
 | transits | `fit_transit(lc, ...)` | `{instrument: {t, flux, flux_err}}` |
 | Doppler tomography | `fit_tomography(nights, ...)` | one `Night` per transit |
 | RV + transit | `fit_joint(RV(...), Transit(...), ...)`, or `session.run_job(cfg)` | channels, or a job config |
-| Rossiter-McLaughlin, TTV, spectroscopic binaries | `session.run_job(cfg)` | a job config |
+| Rossiter-McLaughlin | `fit_rm(rv, phot=...)`, or `session.run_job(cfg)` | `{instrument: {t, rv, rv_err}}` and a `Transit`, or a job config |
+| TTV | `fit_ttv(transit_times, ...)`, or `session.run_job(cfg)` | transit-time blocks or one planet's table, or a job config |
+| spectroscopic binaries | `fit_binary(primary, secondary=None, ...)`, or `session.run_job(cfg)` | `{instrument: {t, rv, rv_err}}` or an `RV` channel per component, or a job config |
 | astrometry, and anything joined to it | see [Astrometry](#astrometry) | |
+
+`fit_rm`, `fit_ttv` and `fit_binary` build a job config and run it. Of the model
+keywords they take the star's (`M_s`, `R_s`, `T_eff`, ...), `stability`,
+`phot_trend_order`, `sharing`, `ttv_backend`, `time_anchor` and `parametrization`,
+and refuse any other; put other options in a `run_job` config.
 
 A `run_job` config is documented in
 [JOB_CONFIG.md](https://github.com/jvines/Nereus.jl/blob/main/docs/JOB_CONFIG.md);
@@ -926,7 +933,7 @@ show(r)
 
 ### Rossiter-McLaughlin
 
-In this release, run this mode through a job config.
+`fit_rm(rv, phot=Transit(...))` runs this mode, or a job config with the blocks below.
 
 RM needs RV through the transit and photometry of the same transit: the kernel takes
 the geometry from the light curve. The kernel is chosen by planet mode.
@@ -1066,7 +1073,8 @@ with astronereus.session() as s:
 
 ### Transit timing variations
 
-In this release, run this mode through a job config.
+`fit_ttv(transit_times, planets=...)` runs this mode, or a job config with the blocks
+below.
 
 Two models, chosen by planet mode. `PM_TTV` (`RVPM_TTV` with RV) frees one timing
 offset per transit, `ttv_k<k>_t<i>` (days); `ttv_n_transits` gives the count per
@@ -1082,7 +1090,7 @@ or `"nbody"` (full integration, several times slower; give `rr`, `b`, the phase
 `phic` and the eccentricity vector bounded priors).
 
 Measured mid-transit times go in `data.transit_times`, with photometry and RV or on
-their own (Nereus after 0.9.1):
+their own (Nereus 0.9.2 and later):
 
 ```python
 "data": {"transit_times": [{"planet": 1, "time_system": "BJD_TDB",
@@ -1160,7 +1168,8 @@ show(r)
 
 ### Spectroscopic binaries
 
-In this release, run this mode through a job config.
+`fit_binary(primary, secondary)` runs this mode, with an instrument map or an `RV`
+channel per component, or a job config with the blocks below.
 
 A double-lined binary is one orbit with two amplitudes, `K_A_k1` and `K_B_k1` (m/s).
 Tag every RV row with a `component` (`"primary"` or `"secondary"`); the systemic
@@ -1645,7 +1654,7 @@ print(r)
 If burn-in ends with the walkers split between modes (say most at a 2P alias
 and a few at P), the recorded chains catch the migration and the posterior comes
 out a mixture. `PTEmcee`, `TransdimPTEmcee` and `Ensemble` take
-`extend_burnin=True` (off by default; Nereus after 0.9.1): burn-in then goes on
+`extend_burnin=True` (off by default; Nereus 0.9.2 and later): burn-in then goes on
 while the walkers are split, the steps come out of `n_steps`, and
 `summary["n_burnin_used"]` says where recording began. It stops at `max_burnin`
 (default `n_burnin` plus half the remaining steps) and warns, naming the
@@ -1654,7 +1663,7 @@ parameter that separates the modes, if they are still split there.
 Every run of those engines and `PTWhitening` also checks afterwards whether
 walkers were still settling into the main mode while being recorded, and warns
 with the step they got there by (`summary["burnin_trim"]`). `trim_burnin=True`
-(off by default; Nereus after 0.9.1) drops the draws before it and recomputes
+(off by default; Nereus 0.9.2 and later) drops the draws before it and recomputes
 the parameters, diagnostics and log Z on the rest. It refuses, with a warning,
 when walkers are still split at the end or the cut would leave under a quarter
 of the run.
@@ -2017,11 +2026,6 @@ better form for several jobs in a row.
 These routes exist in the Python API but do not work in this release. Use the route
 given instead.
 
-- `fit_rm`, `fit_ttv` and `fit_binary` run as a job config (Nereus after 0.9.1; up to
-  0.9.1 they failed). Of the model keywords they take the star's (`M_s`, `R_s`,
-  `T_eff`, ...), `stability`, `phot_trend_order`, `sharing`, `ttv_backend`,
-  `time_anchor` and `parametrization`; any other is refused. Put other options in a
-  `s.run_job(cfg)` config.
 - `fit_rv(noise=[...])` fails (a dict cannot be converted to a noise model). Put
   `noise_models` in the `model` block of a `run_job` config ([Trends and noise
   models](#trends-and-noise-models)).
