@@ -4,7 +4,7 @@ Python client for [Nereus](https://github.com/jvines/Nereus.jl), a Julia package
 Bayesian orbit inference: radial velocities, transits, absolute and relative
 astrometry, Rossiter-McLaughlin, Doppler tomography, TTVs, spectroscopic binaries
 and trans-dimensional planet counts, alone or jointly. This page documents
-astronereus 0.4.41 against Nereus 0.9.2. Source:
+astronereus 0.4.42 against Nereus 0.9.3. Source:
 [jvines/nereus-py](https://github.com/jvines/nereus-py); licence:
 [LICENSE](https://github.com/jvines/nereus-py/blob/main/LICENSE).
 
@@ -171,7 +171,7 @@ with astronereus.session() as s:
 ```
 
 ```
-{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.2', 'pong': True}
+{'julia': '1.13.3', 'threads': 16, 'cpu': 'generic', 'api': 3, 'nereus': '0.9.3', 'pong': True}
 ```
 
 Everything the module-level functions do is also a method on the session
