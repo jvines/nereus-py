@@ -374,7 +374,7 @@ def _verify(path: Path, sha256: str | None) -> None:
 # on GitHub directly: a GitHub-only tag is pruned by the next mirror sync,
 # which demotes the release to a draft and makes these URLs 404. There is no
 # intermediate staging repository -- the mirror is direct. See DEPLOYMENT.md.
-_REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.9.4"
+_REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.9.5"
 
 #: The Nereus version inside the bundles below. `pip install -U astronereus`
 #: cannot touch the cached runtime, and `PY_API_VERSION` only catches an
@@ -383,18 +383,18 @@ _REL = "https://github.com/jvines/Nereus.jl/releases/download/v0.9.4"
 #: v0.5.3 with no sign of it. So a cached runtime older than this is refetched
 #: on the next start (`is_stale`); where that is switched off, `Session.start()`
 #: compares this against `ping`'s `nereus` field and says what to do about it.
-RUNTIME_VERSION = "0.9.4"
+RUNTIME_VERSION = "0.9.5"
 
 BUNDLES: dict[str, tuple[str, str]] = {
     "macos-arm64": (
         f"{_REL}/nereus-runtime-1.13.3-macos-arm64.tar.zst",
-        "d86321d84db590b7f810adeb3ad74ce738cf30baace335edbdaaecbcd7395800"),
+        "f07745d47d185d0ce1844552c81d2ed9d21059b94a73404dd4666515cb8878fd"),
     "linux-x86_64": (
         f"{_REL}/nereus-runtime-1.13.3-linux-x86_64.tar.zst",
-        "943d1cae09a3e0411ed16cba60d8a27255d742beb7dbcca2cf8f42b4ad2b1c4a"),
+        "1abe2e2a127be9fd3e363d5ebeb84ec40a46e2f69ef3dd82ce53f8d847d7b8ac"),
     "linux-aarch64": (
         f"{_REL}/nereus-runtime-1.13.3-linux-aarch64.tar.zst",
-        "7b3f6d3c9a580921cf62a063b073c88bd49e6670e6f2baafb2d987b1c34edb06"),
+        "18ea8a6ad7b78e1ab75046db4333c7b011d7db93d5c9bfdb93944002a89145a7"),
 }
 
 
