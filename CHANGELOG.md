@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.49
 
 - Every entry of a fit's `params` block now carries the unit Julia resolved for
   it, from the instrument's channel, so a photometric `gamma_`/`sigma_` is no
