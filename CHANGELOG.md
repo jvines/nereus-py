@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.49
+
+- Every entry of a fit's `params` block now carries the unit Julia resolved for
+  it, from the instrument's channel, so a photometric `gamma_`/`sigma_` is no
+  longer read as m/s. The client uses that unit, `""` included, and falls back
+  to its own name map only for an entry that carries none (a runtime that
+  predates per-entry units). The raw chain unit is shown as sent: an angle in
+  `rad` gets its degree reading from the unit, not from the name.
+- Derived rows carry their unit from Julia too. The fallback map knows the new
+  rows (`trend_P_min` in d, `trend_K_min` in m/s, `trend_Msini_min` and
+  `trend_Mc_min_torres` in M_jup, `M_s_rho` in M_sun, `logg_s` in dex,
+  `sep_mas` in mas, `omega_p_deg` and `pa_deg` in deg).
+
 ## 0.4.48
 
 - Unit labels now mirror Nereus.jl's explicit unit rules: `rho_s` is in
