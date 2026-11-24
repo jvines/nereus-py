@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.48
 
 - Unit labels now mirror Nereus.jl's explicit unit rules: `rho_s` is in
   rho_sun, `T14`/`T23` in hr, `sigma_tt_k*` in d, `sigma_as_*`/`sigma_iad_*` in
