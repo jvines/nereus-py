@@ -35,6 +35,13 @@
   `s.detect.lc_periodogram(...)` is a GLS periodogram of a light curve. These
   need a runtime with the matching Nereus.jl changes; `PY_API_VERSION` is unchanged
   (no payload changed shape).
+- `planets=[1, 2]` (a range) or a trans-dim engine now sets up trans-dim mode on
+  its own for `fit_rv`, `fit_transit`, `fit_astrometry` and `fit_joint`; it used
+  to crash with `td not assigned` unless `transdim=True` was also given.
+  `transdim=False` with either raises. Operations on a `fit_rm`, `fit_ttv` or
+  `fit_binary` result (`recompute=True`) replay from the job config Julia wrote
+  beside the chains. `select_planets(candidates=(0, 1, 2))` runs the
+  zero-planet fit.
 - `astronereus.priors`: constructors for every prior the typed route accepts
   (`modjeffreys`, `beta`, bounded `normal`, ...), with client-side checks.
   They return the same dicts as before.

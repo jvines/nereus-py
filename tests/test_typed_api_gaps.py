@@ -257,10 +257,11 @@ def test_result_without_a_request_or_directory_is_refused():
         F.run_op(sess, "diagnostics.loo", result=bare)
     with pytest.raises(ValueError, match="output_dir"):
         F.run_op(sess, "diagnostics.loo", result=astronereus.JobResult({"status": "ok"}))
+    # a fit that ran as a job config replays from the config Julia wrote
     cfg = _fit.fit_ttv(_TT, session=sess)
     cfg.raw["output_dir"] = "/y"
-    with pytest.raises(ValueError, match="job config"):
-        F.run_op(sess, "diagnostics.ppc", result=cfg)
+    F.run_op(sess, "diagnostics.ppc", result=cfg, recompute=True)
+    assert sess.calls[-1] == ("diagnostics.ppc", {"output_dir": "/y"})
 
 
 def test_not_implemented_stubs_are_gone():

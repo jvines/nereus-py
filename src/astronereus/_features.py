@@ -24,7 +24,7 @@ _NEEDS_MODEL = frozenset(_BLOCK_OF)
 # What of a recorded request is NOT the model: transport, sampling, output.
 _REQUEST_DROP = frozenset({"op", "stopping", "stop_file", "plots", "plot_kwargs",
                            "save_pdf", "science", "output", "transdim"})
-_CONFIG_ROUTE = frozenset({"fit_rm", "fit_ttv", "fit_binary", "fit_tomography"})
+_CONFIG_ROUTE = frozenset({"fit_rm", "fit_ttv", "fit_binary", "fit_tomography"})  # run as job configs
 
 
 def _usable(block: Any) -> bool:
@@ -59,11 +59,11 @@ def result_payload(action: str, result: Any) -> dict[str, Any]:
     if action in _NEEDS_MODEL:
         op = req.get("op") or raw.get("op")
         if op in _CONFIG_ROUTE:
-            raise ValueError(
-                f"{action}: {op} runs as a job config, which cannot be rebuilt "
-                "from its request; use the block the fit wrote "
-                f"(result.raw[{_BLOCK_OF[action]!r}]) or run_job with the "
-                "output block set")
+            # These fits ran as a job config, which Julia wrote beside the
+            # chains (`job_config.json`); it rebuilds the model from there.
+            if op == "fit_tomography":
+                raise ValueError(f"{action}: fit_tomography has no posterior")
+            return {"output_dir": str(out_dir)}
         if not req.get("channels"):
             raise ValueError(
                 f"{action} re-evaluates the model, and this result carries no "

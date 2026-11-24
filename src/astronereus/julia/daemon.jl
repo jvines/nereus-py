@@ -262,6 +262,16 @@ function _fit_dispatch(op::String, payload)
         extra[sk] = (sk in _SYMBOL_KW && jv isa AbstractString) ? Symbol(jv) : jv
     end
 
+    # `planets` given as a range is trans-dim model selection: it sets `transdim`
+    # (and `transdim = false` with it is an error), here because fit_joint turns
+    # the count into a planet block below and the range is gone by then.
+    if op in ("fit_rv", "fit_transit", "fit_astrometry", "fit_joint") &&
+       planets isa AbstractVector && isdefined(mod, :_planets_transdim)
+        td_ = Base.invokelatest(mod._planets_transdim, planets,
+                                get(extra, :transdim, nothing), op)
+        td_ === nothing || (extra[:transdim] = td_)
+    end
+
     f = getfield(mod, Symbol(op))
     # `stopping` used to be dropped here without a word (it is in _ENVELOPE, and
     # nothing forwarded it), so Stopping(max_seconds=...) ran unbounded. Hand it
