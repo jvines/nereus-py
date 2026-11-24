@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Every entry of a fit's `params` block now carries the unit Julia resolved for
+  it, from the instrument's channel, so a photometric `gamma_`/`sigma_` is no
+  longer read as m/s. The client uses that unit, `""` included, and falls back
+  to its own name map only for an entry that carries none (a runtime that
+  predates per-entry units). The raw chain unit is shown as sent: an angle in
+  `rad` gets its degree reading from the unit, not from the name.
+
 ## 0.4.48
 
 - Unit labels now mirror Nereus.jl's explicit unit rules: `rho_s` is in
