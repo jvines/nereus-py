@@ -301,6 +301,28 @@ function _fit_dispatch(op::String, payload)
             error("fit_rm: Transit(limb_darkening=...) other than quadratic is not implemented")
         get(phc, "gravity_darkening", false) == false ||
             error("fit_rm: Transit(gravity_darkening=True) is not implemented on this route")
+        # The RM channel's own options. `flavour` is the kernel; `vsini`,
+        # `lambda_prior` and `beta` are priors (a number is fixed, a
+        # `{"type": ...}` dict sampled) on the model's v_sin_i_star (m/s),
+        # lambda_k1 (rad) and, for ARoME, beta_p (m/s). They used to be
+        # carried here and never read.
+        rmknown = ("source", "data", "flavour", "vsini", "beta", "lambda_prior")
+        rmbad = [String(k) for k in keys(rmc) if !(String(k) in rmknown)]
+        isempty(rmbad) || error("fit_rm: unknown RM channel option(s) " *
+                                join(repr.(rmbad), ", "))
+        flav = Symbol(get(rmc, "flavour", "reloaded"))
+        for (k, pname) in (("vsini", "v_sin_i_star"), ("lambda_prior", "lambda_k1"),
+                           ("beta", "beta_p"))
+            v = get(rmc, k, nothing)
+            v === nothing && continue
+            k == "beta" && flav !== :arome && error(
+                "fit_rm: RM(beta=...) is the ARoME local line width beta_p; the " *
+                "$(flav) kernel has no such parameter")
+            priors !== nothing && haskey(priors, pname) && error(
+                "fit_rm: `$pname` is set by RM($k=...) and again in `priors`; give it once")
+            priors === nothing && (priors = Dict{String, mod.PriorSpec}())
+            priors[pname] = Base.invokelatest(mod._as_prior, v)
+        end
         phot_data = get(phc, "data", nothing)
         ex = get(phc, "exposure_time", nothing)
         if ex !== nothing && phot_data !== nothing
@@ -312,7 +334,7 @@ function _fit_dispatch(op::String, payload)
         end
         Base.invokelatest(f; rv = get(rmc, "data", nothing),
                           phot = phot_data,
-                          flavour = Symbol(get(rmc, "flavour", "reloaded")),
+                          flavour = flav,
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_transit"
         # The whole Transit CHANNEL, not just its data: exposure_time, dilution,
@@ -332,10 +354,18 @@ function _fit_dispatch(op::String, payload)
         Base.invokelatest(f; rv = get(c, "primary", nothing),
                           secondary = get(c, "secondary", nothing),
                           engine = eng, output_dir = outdir, priors = priors, extra...)
-    else
-        isempty(chs) && error("$op: no data channel in payload")
-        Base.invokelatest(f, get(chs[1], "data", chs[1]);
+    elseif op == "fit_rv"
+        # The whole RV CHANNEL, not just its data, as for fit_transit: jitter,
+        # trend_order, gamma_per_instrument, share and marginalize_gamma ride on
+        # it. Passing `data` alone dropped every one of them, so
+        # `fit_rv(rv, trend_order=1)` fitted no trend. Julia's fit_rv takes
+        # either (PY_API_VERSION 4).
+        isempty(chs) && error("fit_rv: no data channel in payload")
+        length(chs) == 1 || error("fit_rv takes one RV channel; got $(length(chs))")
+        Base.invokelatest(f, chs[1];
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
+    else
+        error("$op: no dispatch for this operation")
     end
     summary = r.summary
     if summary isa AbstractDict && haskey(summary, "figures")
