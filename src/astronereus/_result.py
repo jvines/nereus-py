@@ -165,11 +165,14 @@ _UNIT_SUFFIX = {"au": "AU", "deg": "deg", "rad": "rad", "mjup": "M_jup",
 
 
 def _unit_of(name: str, stats=None) -> str:
-    # Julia tags the science-contract entries with their unit; trust that over
-    # anything inferred from the parameter's name.
+    # Julia tags every summary entry with its unit (the raw chain unit for the
+    # `params` block, the reported one for the science contract). When the key
+    # is there it is the answer, "" included: that is dimensionless, and a
+    # name rule must not turn it back into m/s. The name maps below are the
+    # fallback for a runtime that predates per-entry units and sends none.
     if isinstance(stats, Mapping):
         u = stats.get("unit")
-        if isinstance(u, str) and u:
+        if isinstance(u, str):
             return u
     b = _base_name(name)
     if b in _UNITS:
@@ -191,10 +194,10 @@ def _unit_of(name: str, stats=None) -> str:
                                     # not claimed for those -- see note above
 
 
-def _also(name: str, v: float) -> str:
+def _also(name: str, v: float, stats=None) -> str:
     """A second reading of the same number, where one is genuinely useful."""
     import math
-    u = _unit_of(name)
+    u = _unit_of(name, stats)
     if u == "rad" and math.isfinite(v):
         return f"{math.degrees(v) % 360:.2f} deg"
     if u == "M_sun" and math.isfinite(v) and _base_name(name) == "M_sec":
@@ -376,7 +379,7 @@ class Estimate(float):
         err = _err_scale(self.plus, self.minus)
         body = (f"{_sig(float(self), err)} "
                 f"+{_sig(self.plus, err)} -{_sig(self.minus, err)}")
-        alt = _also(self.name, float(self)) if unit else ""
+        alt = _also(self.name, float(self), self.raw) if unit else ""
         tail = f"  = {alt}" if alt else ""
         if self.multimodal:
             tail += "  [multimodal]"
@@ -410,7 +413,7 @@ class Params(Mapping):
             v = self._m[k]
             if isinstance(v, Estimate):
                 err = _err_scale(v.plus, v.minus)
-                alt = _also(k, float(v))
+                alt = _also(k, float(v), v.raw)
                 note = f"= {alt}" if alt else ""
                 if v.multimodal:
                     note = f"{note}  multimodal" if note else "multimodal"
