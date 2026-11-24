@@ -30,7 +30,7 @@ from ._fit import (
 from .channels import (RV, Transit, Astrometry, RM, Night, TTV, SB2,
                        read_rv, read_photometry, read_relastrom)
 from .stopping import Stopping
-from . import engines, channels, datasets
+from . import engines, channels, datasets, priors
 from ._result import JobResult, JobFailed, Figures
 
 __all__ = ["JULIA_VERSION", "RUNTIME_VERSION", "CPU_TARGETS", "BundleError", "DaemonError", "FitInterrupted", "runtime_parts",
@@ -45,8 +45,8 @@ __all__ = ["JULIA_VERSION", "RUNTIME_VERSION", "CPU_TARGETS", "BundleError", "Da
            "fit_rv", "fit_transit", "fit_astrometry", "fit_rm",
            "fit_tomography", "fit_ttv", "fit_binary", "fit_joint",
            "RV", "Transit", "Astrometry", "RM", "Night", "TTV", "SB2",
-           "Stopping", "engines", "channels", "datasets"]
-__version__ = "0.4.49"
+           "Stopping", "engines", "channels", "datasets", "priors"]
+__version__ = "0.4.50"
 
 
 def daemon(**kw) -> JuliaDaemon:

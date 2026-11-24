@@ -153,6 +153,62 @@ function _fresh_figs(figs, before::Dict{String,Float64})
     return out
 end
 
+# A Transit channel as the bare instrument map the config-route fits take
+# (fit_rm, fit_ttv), with the channel's own options folded in. `exposure_time`
+# (seconds, per instrument) is the one a photometry block has; the others would
+# be dropped silently, so they throw.
+function _phot_for_config_route(phc, op::String)
+    for k in ("dilution", "supersample")
+        get(phc, k, nothing) === nothing ||
+            error("$op: Transit($k=...) is not supported on this route; " *
+                  "it was never read")
+    end
+    get(phc, "jitter", "default") == "default" ||
+        error("$op: Transit(jitter=...) is not supported on this route; " *
+              "set `priors[\"jitter_<instrument>\"]`")
+    Symbol(get(phc, "limb_darkening", "quadratic")) in (:quadratic, :kipping) ||
+        error("$op: Transit(limb_darkening=...) other than quadratic is not implemented")
+    get(phc, "gravity_darkening", false) == false ||
+        error("$op: Transit(gravity_darkening=True) has no planet mode here; " *
+              "name the modes with planet_modes=[...]")
+    phot_data = get(phc, "data", nothing)
+    ex = get(phc, "exposure_time", nothing)
+    if ex !== nothing && phot_data !== nothing
+        _ex(inst) = ex isa AbstractDict ? get(ex, inst, nothing) : ex
+        phot_data = Dict{String,Any}(
+            inst => (_ex(inst) === nothing ? blob :
+                     merge(blob, (exposure_time = _ex(inst),)))
+            for (inst, blob) in phot_data)
+    end
+    return phot_data
+end
+
+# An RV channel as the instrument map the config-route fits take, plus its
+# `indicator_cols`. These fits read velocities and activity columns only; every
+# other channel option (jitter, trend, sharing, ...) would be dropped, so it throws.
+function _rv_for_config_route(rvc, op::String)
+    for (k, dflt) in (("jitter", "default"), ("trend_order", 0),
+                      ("gamma_per_instrument", true), ("share", nothing),
+                      ("marginalize_gamma", false))
+        get(rvc, k, dflt) == dflt ||
+            error("$op: RV($k=...) is not supported on this route; set it in " *
+                  "`priors` or `config_overrides`")
+    end
+    data = get(rvc, "data", nothing)
+    ind = get(rvc, "indicators", nothing)
+    cols = get(rvc, "indicator_cols", nothing)
+    if ind !== nothing
+        data = Dict{String,Any}(
+            String(inst) => (haskey(ind, String(inst)) ?
+                merge(blob, NamedTuple(Symbol(a) => (b isa AbstractVector ?
+                      Float64.(b) : b) for (a, b) in pairs(ind[String(inst)]))) : blob)
+            for (inst, blob) in data)
+        cols === nothing && (cols = unique(String(a) for blk in values(ind)
+                                           for a in keys(blk) if !endswith(String(a), "_err")))
+    end
+    return data, cols
+end
+
 function _fit_dispatch(op::String, payload)
     # api.jl/features.jl are Nereus members now; fall back to Main for the
     # bring-up path where they were include()d loose.
@@ -204,6 +260,16 @@ function _fit_dispatch(op::String, payload)
         v === nothing && continue
         jv = _j(v)
         extra[sk] = (sk in _SYMBOL_KW && jv isa AbstractString) ? Symbol(jv) : jv
+    end
+
+    # `planets` given as a range is trans-dim model selection: it sets `transdim`
+    # (and `transdim = false` with it is an error), here because fit_joint turns
+    # the count into a planet block below and the range is gone by then.
+    if op in ("fit_rv", "fit_transit", "fit_astrometry", "fit_joint") &&
+       planets isa AbstractVector && isdefined(mod, :_planets_transdim)
+        td_ = Base.invokelatest(mod._planets_transdim, planets,
+                                get(extra, :transdim, nothing), op)
+        td_ === nothing || (extra[:transdim] = td_)
     end
 
     f = getfield(mod, Symbol(op))
@@ -286,21 +352,8 @@ function _fit_dispatch(op::String, payload)
             "fit_rm: needs a Transit channel alongside the RM channel")
         rmc, phc = chs[rmi], chs[phi]
         # fit_rm takes the photometry as a bare instrument map, so the Transit
-        # channel's options have to be folded in here. `exposure_time` is the
-        # one a photometry block has (seconds, per instrument); the others
-        # would be dropped silently, so they throw.
-        for k in ("dilution", "supersample")
-            get(phc, k, nothing) === nothing ||
-                error("fit_rm: Transit($k=...) is not supported on this route; " *
-                      "it was never read")
-        end
-        get(phc, "jitter", "default") == "default" ||
-            error("fit_rm: Transit(jitter=...) is not supported on this route; " *
-                  "set `priors[\"jitter_<instrument>\"]` in the job config")
-        Symbol(get(phc, "limb_darkening", "quadratic")) in (:quadratic, :kipping) ||
-            error("fit_rm: Transit(limb_darkening=...) other than quadratic is not implemented")
-        get(phc, "gravity_darkening", false) == false ||
-            error("fit_rm: Transit(gravity_darkening=True) is not implemented on this route")
+        # channel's options have to be folded in here.
+        phot_data = _phot_for_config_route(phc, "fit_rm")
         # The RM channel's own options. `flavour` is the kernel; `vsini`,
         # `lambda_prior` and `beta` are priors (a number is fixed, a
         # `{"type": ...}` dict sampled) on the model's v_sin_i_star (m/s),
@@ -323,15 +376,6 @@ function _fit_dispatch(op::String, payload)
             priors === nothing && (priors = Dict{String, mod.PriorSpec}())
             priors[pname] = Base.invokelatest(mod._as_prior, v)
         end
-        phot_data = get(phc, "data", nothing)
-        ex = get(phc, "exposure_time", nothing)
-        if ex !== nothing && phot_data !== nothing
-            _ex(inst) = ex isa AbstractDict ? get(ex, inst, nothing) : ex
-            phot_data = Dict{String,Any}(
-                inst => (_ex(inst) === nothing ? blob :
-                         merge(blob, (exposure_time = _ex(inst),)))
-                for (inst, blob) in phot_data)
-        end
         Base.invokelatest(f; rv = get(rmc, "data", nothing),
                           phot = phot_data,
                           flavour = flav,
@@ -344,8 +388,24 @@ function _fit_dispatch(op::String, payload)
         Base.invokelatest(f, chs[1];
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_ttv"
-        c = isempty(chs) ? Dict{String,Any}() : chs[1]
-        Base.invokelatest(f; transit_times = get(c, "transit_times", nothing),
+        # Up to three channels: measured transit times (TTV), photometry (PM)
+        # and RV; with RV the model is RVPM_TTV, or the N-body one with `nbody`.
+        src(c) = String(get(c, "source", ""))
+        known = Set(("TTV", "PM", "RV"))
+        bad = [src(c) for c in chs if !(src(c) in known)]
+        isempty(bad) || error("fit_ttv: a $(join(repr.(bad), ", ")) channel has no place " *
+                              "in a TTV fit; it takes TTV, Transit and RV channels")
+        pick(s) = (i = findfirst(c -> src(c) == s, chs); i === nothing ? nothing : chs[i])
+        ttc, phc, rvc = pick("TTV"), pick("PM"), pick("RV")
+        rvd, icols = rvc === nothing ? (nothing, nothing) :
+                     _rv_for_config_route(rvc, "fit_ttv")
+        ikw = icols === nothing || haskey(extra, :indicator_cols) ? (;) :
+              (; indicator_cols = icols)
+        Base.invokelatest(f; transit_times = ttc === nothing ? nothing :
+                              get(ttc, "transit_times", nothing),
+                          phot = phc === nothing ? nothing :
+                                 _phot_for_config_route(phc, "fit_ttv"),
+                          rv = rvd, ikw...,
                           planets, engine = eng, output_dir = outdir, priors = priors, extra...)
     elseif op == "fit_binary"
         # fit_binary takes NO `planets` keyword: the companion count is fixed
