@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.50
 
 - **Every engine carries every keyword its Julia sampler declares** (the field
   lists were read out of `Base.kwarg_decl`). Added, all defaulting to not sent:
