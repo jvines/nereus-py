@@ -122,7 +122,6 @@ def test_defaults_send_what_julia_defaults_to():
 @pytest.mark.parametrize("kw,pat", [
     ({"limb_darkening": "linear"}, "limb_darkening"),
     ({"limb_darkening": "nonlinear"}, "limb_darkening"),
-    ({"gravity_darkening": True}, "gravity_darkening"),
     ({"supersample": 5}, "exposure_time"),
     ({"exposure_time": -1.0}, "positive"),
     ({"exposure_time": {"T": 0.0}}, "positive"),
@@ -136,6 +135,7 @@ def test_kipping_is_accepted():
     assert Transit(data=_TR.data, limb_darkening="kipping").limb_darkening == "kipping"
 
 
-def test_fit_transit_gravity_darkening_raises():
-    with pytest.raises(ValueError, match="gravity_darkening"):
-        _fit.fit_transit(_TR.data, gravity_darkening=True, session=_Session())
+def test_fit_transit_gravity_darkening_rides_on_the_channel():
+    sess = _Session()
+    _fit.fit_transit(_TR.data, gravity_darkening=True, session=sess)
+    assert sess.payload["channels"][0]["gravity_darkening"] is True

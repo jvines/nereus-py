@@ -91,6 +91,11 @@ class PT(Engine):
     early_stop_thresh: float | None = None
     early_stop_min_rounds: int | None = None
     show_report: bool | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    swap_min: float | None = None
+    n_warmup_rounds: int | None = None
 
 
 @dataclass
@@ -108,6 +113,16 @@ class PTHMC(Engine):
     warm_start: bool | None = None
     seed: int | None = None
     progress: bool | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    swap_min: float | None = None
+    beta_min: float | None = None
+    bridge_n: int | None = None
+    evidence_tol: float | None = None
+    laplace_switch_tol: float | None = None
+    n_pilot: int | None = None
+    n_scouts: int | None = None
 
 
 @dataclass
@@ -134,6 +149,12 @@ class PTWhitening(Engine):
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
     de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
     show_progress: bool | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    swap_min: float | None = None
+    burnin_hold: bool | dict[str, float] | None = None
+    burnin_hold_frac: float | None = None
 
 
 @dataclass
@@ -228,6 +249,15 @@ class PTEmcee(Engine):
 
 
 # --- nested sampling ---------------------------------------------------------
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    swap_min: float | None = None
+    burnin_hold: bool | dict[str, float] | None = None
+    burnin_hold_frac: float | None = None
+    progress_log: str | None = None
+    evidence_postfit: bool | None = None
+
 
 @dataclass
 class Nested(Engine):
@@ -249,6 +279,8 @@ class Nested(Engine):
     batch_size: int | None = None
     parallel: bool | None = None
     seed: int | None = None
+    seam_pilot: bool | None = None
+    show_progress: bool | None = None
 
 
 @dataclass
@@ -267,6 +299,7 @@ class NestedINS(Engine):
     bound_update_interval: int | None = None
     seed: int | None = None
     verbose: bool | None = None
+    show_progress: bool | None = None
 
 
 @dataclass
@@ -296,6 +329,8 @@ class NestedDynamic(Engine):
 
 
 # --- trans-dimensional -------------------------------------------------------
+    show_progress: bool | None = None
+
 
 @dataclass
 class MoMS(Engine):
@@ -316,6 +351,10 @@ class MoMS(Engine):
     progress_every: int | None = None
     seed: int | None = None
     show_progress: bool | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    n_scouts: int | None = None
 
 
 @dataclass
@@ -338,6 +377,7 @@ class Daedalus(Engine):
     progress_every: int | None = None
     seed: int | None = None
     show_progress: bool | None = None
+    decorrelation: float | None = None
 
 
 @dataclass
@@ -354,6 +394,10 @@ class RJMCMC(Engine):
     progress_every: int | None = None
     seed: int | None = None
     show_progress: bool | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    n_scouts: int | None = None
 
 
 @dataclass
@@ -425,6 +469,13 @@ class TransdimPTEmcee(Engine):
 
 
 # --- gradient-based / point estimates ---------------------------------------
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    swap_min: float | None = None
+    burnin_hold: bool | dict[str, float] | None = None
+    burnin_hold_frac: float | None = None
+
 
 @dataclass
 class NUTS(Engine):
@@ -446,6 +497,11 @@ class NUTS(Engine):
     warm_steps: int | None = None
     warm_burnin: int | None = None
     progress: bool | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    n_scouts: int | None = None
+    seed: int | None = None
 
 
 @dataclass
@@ -490,6 +546,12 @@ class Ensemble(Engine):
     extend_burnin: bool | None = None        # Nereus 0.9.2 and later; see PTEmcee
     max_burnin: int | None = None            # in saved draws, like n_burnin
     trim_burnin: bool | None = None          # Nereus 0.9.2 and later; see PTEmcee
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
+    n_scouts: int | None = None
+    prune_stranded: bool | None = None
+    show_progress: bool | None = None
 
 
 @dataclass
@@ -500,6 +562,9 @@ class ESS(Engine):
     n_burnin: int | None = None
     n_chains: int | None = None
     seed: int | None = None
+    checkpoint: str | None = None
+    checkpoint_interval: float | None = None
+    resume: bool | None = None
 
 
 @dataclass
@@ -519,6 +584,8 @@ class PA(Engine):
     mutation_kernel: Literal["stretch", "rwm", "adaptive_cov"] | None = None
     seed: int | None = None
     show_progress: bool | None = None
+    decorrelation: float | None = None
+    resample_ess: float | None = None
 
 
 @dataclass

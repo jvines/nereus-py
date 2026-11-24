@@ -268,16 +268,19 @@ for _n in ("fit_rv", "fit_transit", "fit_astrometry", "fit_rm",
     setattr(Session, _n, _bind(_n))
 
 # post-hoc operations that act on a finished run
-for _n, _act in (("evidence", "evidence"),
-                 ("detection_limits", "detection_limits"),
-                 ("select_planets", "select_planets"),
-                 ("select_noise", "select_noise"),
-                 ("pre_white", "pre_white")):
-    def _mk(action):
-        def m(self, **payload):
-            return self.raw(action, payload)
-        return m
-    setattr(Session, _n, _mk(_act))
+def _bind_feature(name):
+    fn = getattr(_F, name)
+
+    def method(self, *a, **kw):
+        return fn(self, *a, **kw)
+    method.__name__ = name
+    method.__doc__ = fn.__doc__
+    return method
+
+
+for _n in ("evidence", "detection_limits", "select_planets", "select_noise",
+           "pre_white"):
+    setattr(Session, _n, _bind_feature(_n))
 
 
 # --- data loading -----------------------------------------------------------

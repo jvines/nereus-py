@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+- **Every engine carries every keyword its Julia sampler declares** (the field
+  lists were read out of `Base.kwarg_decl`). Added, all defaulting to not sent:
+  `PTEmcee` `checkpoint`, `checkpoint_interval`, `resume`, `burnin_hold`,
+  `burnin_hold_frac`, `progress_log`, `swap_min`, `evidence_postfit`;
+  `TransdimPTEmcee` `swap_min`, `burnin_hold`, `burnin_hold_frac`, `checkpoint`,
+  `checkpoint_interval`, `resume`; `PTWhitening` `burnin_hold`, `burnin_hold_frac`,
+  `checkpoint*`, `resume`, `swap_min`; and the checkpoint / `n_scouts` /
+  `show_progress` / evidence keywords of `PT`, `PTHMC`, `Ensemble`, `ESS`, `MoMS`,
+  `RJMCMC`, `NUTS` (also `seed`), `Nested*`, `Daedalus` and `PA`. Only `init`
+  (a Julia vector), `td` and `rng` are not exposed.
+- `ttv_epochs` is accepted by `fit_joint` and the other fits (it was missing from
+  the keyword whitelist).
+- **`fit_ttv(transit_times=None, *, phot=, rv=, nbody=)`**: transit times,
+  photometry, or both; `rv` selects RVPM_TTV and `nbody=True` the N-body model.
+- **`config_overrides: dict | None` on every `fit_*`** (not `fit_tomography`): a
+  dict in a job config's shape applied last. Deep-merged into the config for
+  `fit_rm`, `fit_ttv`, `fit_binary`; read block by block (`star`, `model`,
+  `priors`, ...) for `fit_rv`, `fit_transit`, `fit_astrometry`, `fit_joint`.
+- **`noise_models`, `noise_menu`, `planet_modes`, `indicator_cols` on every
+  `fit_*`**, with `RV(indicators=..., indicator_cols=...)` for the activity
+  columns. `Transit(gravity_darkening=True)` and `fit_transit(gravity_darkening=
+  True)` fit the gravity-darkened transit instead of raising.
+- **Operations on a result.** `s.evidence`, `s.detection_limits`,
+  `s.diagnostics.loo / ppc / fit_health` take `result=`: they return the block
+  the fit wrote, or with `recompute=True` evaluate again from its chains by
+  replaying the fit's request. `s.diagnostics.label_switching(result=)`,
+  `s.select_planets(result=)` (trans-dim chains) and `s.select_noise(result=)`
+  read the chains. `s.select_planets(*channels, candidates=)` and
+  `s.select_noise(*channels, candidates={name: noise})` run one fit per candidate
+  and tabulate log Z. `s.pre_white(...)` prewhitens a series;
+  `s.detect.lc_periodogram(...)` is a GLS periodogram of a light curve. These
+  need a runtime with the matching Nereus.jl changes; `PY_API_VERSION` is unchanged
+  (no payload changed shape).
+- `astronereus.priors`: constructors for every prior the typed route accepts
+  (`modjeffreys`, `beta`, bounded `normal`, ...), with client-side checks.
+  They return the same dicts as before.
+
 ## 0.4.49
 
 - Every entry of a fit's `params` block now carries the unit Julia resolved for
