@@ -114,6 +114,22 @@ class RV(Channel):
     `data` maps instrument name -> {t, rv, rv_err}. Each instrument gets its own
     systemic offset and jitter unless shared via `share`.
 
+    Every option below reaches the model (`fit_rv`, `fit_joint`, `replot`), or
+    raises: nothing is accepted and ignored.
+
+    - `jitter`: "default" (the default prior on `sigma_<instrument>`), a number
+      (fixed, m/s), a prior dict, or `{instrument: ...}`. Giving the same
+      `sigma_<instrument>` in the fit's `priors` as well is an error.
+    - `trend_order`: polynomial RV trend (1 = `dvdt`, 2 adds `d2vdt2`).
+    - `gamma_per_instrument=False`: one offset shared by every instrument.
+    - `share`: sharing groups, `{"gamma": [["HARPS", "HARPS-N"]], "sigma":
+      [...]}`; merged with the fit's `sharing=`, the same category in both is
+      an error.
+    - `marginalize_gamma=True`: integrate the offsets out analytically instead
+      of sampling them.
+    - `indicators`: not built by the typed fit_* functions (activity
+      indicators feed noise models, a job-config option) and raises.
+
     `RV.from_file(path, **kw)` builds that mapping from a table; see `read_rv`.
     """
     source = "RV"
@@ -124,6 +140,18 @@ class RV(Channel):
     share: Mapping[str, Sequence[Sequence[str]]] | None = None
     marginalize_gamma: bool = False
     indicators: Mapping[str, Sequence[float]] | None = None
+
+    def __post_init__(self):
+        if self.indicators is not None:
+            raise ValueError(
+                "RV(indicators=...): activity indicators are not built by the "
+                "typed fit_* functions; they feed noise models, which take a job "
+                "config (indicator columns in the RV block plus `noise_models`, "
+                "via run_job).")
+        if (isinstance(self.trend_order, bool)
+                or not isinstance(self.trend_order, int) or self.trend_order < 0):
+            raise ValueError("RV(trend_order=...) must be a non-negative integer; "
+                             f"got {self.trend_order!r}")
 
     @classmethod
     def from_file(cls, path, *, jitter="default", trend_order=0,
@@ -387,6 +415,11 @@ class RM(Channel):
     `flavour` picks the kernel: "reloaded" (RM_R_SOURCE) or "arome"
     (RM_A_SOURCE). Plain "rm" (RM_SOURCE) is the legacy flux-weighted-mean
     model, which carries known amplitude and shape error at high vsini/beta.
+
+    `vsini` (m/s), `lambda_prior` (radians) and `beta` (m/s) are priors -- a
+    number is fixed, a prior dict sampled -- on the model's `v_sin_i_star`,
+    `lambda_k1` and, for "arome" only, the local line width `beta_p`. Giving the
+    same parameter in the fit's `priors` as well is an error.
     """
     source = "RM"
     data: Mapping[str, Mapping[str, Sequence[float]]] = field(default_factory=dict)
@@ -397,6 +430,10 @@ class RM(Channel):
 
     def __post_init__(self):
         self.source = {"rm": "RM", "reloaded": "RM_R", "arome": "RM_A"}[self.flavour]
+        if self.beta is not None and self.flavour != "arome":
+            raise ValueError(
+                f"RM(beta=...) is the ARoME local line width beta_p; the "
+                f"{self.flavour!r} kernel has no such parameter")
 
 
 @dataclass

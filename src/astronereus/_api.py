@@ -42,7 +42,7 @@ _shared_lock = threading.Lock()
 
 #: Contract version this client speaks. Must match `Nereus.PY_API_VERSION` in
 #: the cached runtime; see the comment on that constant for the bump rule.
-PY_API_VERSION = 3
+PY_API_VERSION = 4
 
 
 class RuntimeVersionError(RuntimeError):
