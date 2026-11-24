@@ -127,8 +127,14 @@ class RV(Channel):
       an error.
     - `marginalize_gamma=True`: integrate the offsets out analytically instead
       of sampling them.
-    - `indicators`: not built by the typed fit_* functions (activity
-      indicators feed noise models, a job-config option) and raises.
+    - `indicators` and `indicator_cols`: activity indicators, which the noise
+      models (`noise_models=`, `noise_menu=` on the fit) read.
+      `indicators={instrument: {name: values, name_err: values}}` supplies them
+      per instrument, each as long as that instrument's data; `name_err` is that
+      indicator's 1-sigma. `indicator_cols=[name, ...]` names the columns to use
+      (default: every name in `indicators`); with it alone they are read from
+      extra columns of `data[instrument]`, the way a job config's RV block
+      carries them. Every instrument needs every named column.
 
     `RV.from_file(path, **kw)` builds that mapping from a table; see `read_rv`.
     """
@@ -139,15 +145,24 @@ class RV(Channel):
     gamma_per_instrument: bool = True
     share: Mapping[str, Sequence[Sequence[str]]] | None = None
     marginalize_gamma: bool = False
-    indicators: Mapping[str, Sequence[float]] | None = None
+    indicators: Mapping[str, Mapping[str, Sequence[float]]] | None = None
+    indicator_cols: Sequence[str] | None = None
 
     def __post_init__(self):
         if self.indicators is not None:
-            raise ValueError(
-                "RV(indicators=...): activity indicators are not built by the "
-                "typed fit_* functions; they feed noise models, which take a job "
-                "config (indicator columns in the RV block plus `noise_models`, "
-                "via run_job).")
+            if not isinstance(self.indicators, Mapping) or not all(
+                    isinstance(v, Mapping) for v in self.indicators.values()):
+                raise ValueError(
+                    "RV(indicators=...) maps an instrument to its columns: "
+                    "{instrument: {name: values, name_err: values}}")
+            bad = sorted(set(self.indicators) - set(self.data))
+            if bad:
+                raise ValueError(f"RV(indicators=...) names {bad}, not among "
+                                 f"the instruments in its data {sorted(self.data)}")
+        if self.indicator_cols is not None:
+            if isinstance(self.indicator_cols, str):
+                self.indicator_cols = [self.indicator_cols]
+            self.indicator_cols = [str(c) for c in self.indicator_cols]
         if (isinstance(self.trend_order, bool)
                 or not isinstance(self.trend_order, int) or self.trend_order < 0):
             raise ValueError("RV(trend_order=...) must be a non-negative integer; "
@@ -156,18 +171,21 @@ class RV(Channel):
     @classmethod
     def from_file(cls, path, *, jitter="default", trend_order=0,
                   gamma_per_instrument=True, share=None,
-                  marginalize_gamma=False, indicators=None, **read_kw):
+                  marginalize_gamma=False, indicators=None, indicator_cols=None,
+                  **read_kw):
         """`RV` straight from a table. Channel options pass through; the rest
         goes to `read_rv` (`format=`, `rename=`, `time_offset=`, `session=`)."""
         return cls(data=read_rv(path, **read_kw), jitter=jitter,
                    trend_order=trend_order,
                    gamma_per_instrument=gamma_per_instrument, share=share,
-                   marginalize_gamma=marginalize_gamma, indicators=indicators)
+                   marginalize_gamma=marginalize_gamma, indicators=indicators,
+                   indicator_cols=indicator_cols)
 
     @classmethod
     def from_table(cls, table, *, jitter="default", trend_order=0,
                    gamma_per_instrument=True, share=None,
-                   marginalize_gamma=False, indicators=None, **kw):
+                   marginalize_gamma=False, indicators=None,
+                   indicator_cols=None, **kw):
         """`RV` from a table you already have in Python -- a pandas
         DataFrame, an astropy Table, a numpy structured array, or a dict of
         columns.
@@ -183,13 +201,15 @@ class RV(Channel):
         return cls(data=rv_from_table(table, **kw), jitter=jitter,
                    trend_order=trend_order,
                    gamma_per_instrument=gamma_per_instrument, share=share,
-                   marginalize_gamma=marginalize_gamma, indicators=indicators)
+                   marginalize_gamma=marginalize_gamma, indicators=indicators,
+                   indicator_cols=indicator_cols)
 
     @classmethod
     def from_arrays(cls, t, rv, rv_err, *, instrument="INST",
                     time_offset="auto", rename=None, jitter="default",
                     trend_order=0, gamma_per_instrument=True, share=None,
-                    marginalize_gamma=False, indicators=None):
+                    marginalize_gamma=False, indicators=None,
+                    indicator_cols=None):
         """`RV` from three bare arrays. `instrument` is one label for every
         row, or a per-row sequence of labels."""
         from ._ingest import group_by_instrument, resolve_time
@@ -197,7 +217,8 @@ class RV(Channel):
                                    instrument, "rv", "rv_err", rename=rename)
         return cls(data=data, jitter=jitter, trend_order=trend_order,
                    gamma_per_instrument=gamma_per_instrument, share=share,
-                   marginalize_gamma=marginalize_gamma, indicators=indicators)
+                   marginalize_gamma=marginalize_gamma, indicators=indicators,
+                   indicator_cols=indicator_cols)
 
     @classmethod
     def from_vizier(cls, catalogue, *, jitter="default", trend_order=0,
@@ -219,7 +240,8 @@ class RV(Channel):
         return cls(data=rv_from_table(tab, **kw), jitter=jitter,
                    trend_order=trend_order,
                    gamma_per_instrument=gamma_per_instrument, share=share,
-                   marginalize_gamma=marginalize_gamma, indicators=indicators)
+                   marginalize_gamma=marginalize_gamma, indicators=indicators,
+                   indicator_cols=indicator_cols)
 
 
 @dataclass
@@ -242,9 +264,11 @@ class Transit(Channel):
       the same parameter in the fit's `priors` as well is an error.
     - `limb_darkening` is "quadratic" or "kipping": one model, sampled in
       Kipping's (q1, q2). The other laws do not exist in Nereus and raise.
-    - `gravity_darkening=True` and `supersample` (an explicit sub-sample count)
-      are not implemented on the typed route and raise; use a job config for
-      gravity darkening, and `exposure_time` for supersampling.
+    - `gravity_darkening=True` fits the gravity-darkened transit (planet mode
+      `PM_GD`, or `RVPM_GD` with an RV channel in `fit_joint`), which constrains
+      i-star separately from lambda; other modes are the fit's `planet_modes=`.
+      `supersample` (an explicit sub-sample count) is not implemented and
+      raises; `exposure_time` sets the supersampling.
     """
     source = "PM"
     data: Mapping[str, Mapping[str, Sequence[float]]] = field(default_factory=dict)
@@ -278,11 +302,8 @@ class Transit(Channel):
                 "model is quadratic, sampled in Kipping's (q1, q2); \"quadratic\" "
                 "and \"kipping\" are the same model. Other laws are not "
                 "implemented.")
-        if self.gravity_darkening:
-            raise ValueError(
-                "Transit(gravity_darkening=True): the gravity-darkened transit "
-                "(planet mode PM_GD) is a job-config option, not built by the "
-                "typed fit_* functions.")
+        if not isinstance(self.gravity_darkening, bool):
+            raise ValueError("Transit(gravity_darkening=...) must be True or False")
         if self.supersample is not None:
             raise ValueError(
                 "Transit(supersample=...): there is no explicit sub-sample "

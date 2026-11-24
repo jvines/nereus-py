@@ -51,7 +51,16 @@ _MODEL_KW = (
     "sharing",           # instrument parameter sharing groups
     "transdim_noise",
     "ttv_n_transits",
+    "ttv_epochs",        # {planet: [transit numbers]}: free offsets on those transits
     "ttv_backend",       # "ttvfaster" | "nbody"
+    # Nereus >= 0.9.9 (this client): what a run_job config gives and the typed
+    # route lacked. Each is the job config's own block, spelled the same.
+    "noise_models",      # [{"kind": "CeleriteRotation", "channel": "rv",
+                         #   "instruments": [...], "kwargs": {...}}, ...]
+    "noise_menu",        # {"indicators": [...], "include_matern": ...}: the default
+                         # menu, with trans-dim toggling when `transdim` is given
+    "planet_modes",      # one name per planet: "RVPM_GD", "PM_GD", "RVPM_RM_GD", ...
+    "indicator_cols",    # activity columns of the RV data the noise models read
 )
 
 
@@ -83,7 +92,8 @@ def _gaia_extra(gaia_id, name, extra: dict | None = None) -> dict | None:
 
 def _run(session, op: str, channels: Sequence[Channel], *, planets,
          engine, stopping, output_dir, priors=None, stop_file=None,
-         extra: dict[str, Any] | None = None, star: bool = False, **model_kw):
+         extra: dict[str, Any] | None = None, star: bool = False,
+         config_overrides: dict | None = None, **model_kw):
     known = _MODEL_KW + (_STAR_KW if star else ())
     bad = set(model_kw) - set(known)
     if bad:
@@ -111,8 +121,32 @@ def _run(session, op: str, channels: Sequence[Channel], *, planets,
     if extra:
         payload.update(extra)
     payload.update({k: v for k, v in model_kw.items() if v is not None})
+    if config_overrides is not None:
+        if not isinstance(config_overrides, Mapping):
+            raise TypeError("config_overrides must be a dict shaped like a job "
+                            f"config; got {type(config_overrides).__name__}")
+        payload["config_overrides"] = dict(config_overrides)
     from ._result import JobResult
-    return JobResult(session.raw(op, payload))
+    res = JobResult(session.raw(op, payload))
+    # The request, kept so operations on this result that re-evaluate the model
+    # (`diagnostics.loo`, `evidence`, ...) can rebuild it, as `replot` does.
+    res._request = payload
+    return res
+
+
+_CONFIG_OVERRIDES_DOC = """
+    `config_overrides` is a dict in the shape of a job config, applied last, so
+    that anything a `run_job` config can set is reachable from the typed call.
+    `fit_rm`, `fit_ttv` and `fit_binary` build a job config and run it: the dict
+    is DEEP-merged into it (`{"sampler": {"kwargs": {"n_steps": 500}},
+    "model": {"stability": "amd"}}`). `fit_rv`, `fit_transit`, `fit_astrometry`
+    and `fit_joint` build a target, not a config, so the blocks that have a place
+    there are read: `star` (`M_s`, `R_s`, T_eff, ...), `model` (`stability`,
+    `trend_order`, `phot_trend_order`, `sharing`, `ttv_*`, `planet_modes`,
+    `parametrization` as a mass mode or a `{mass, time, density, use_rho_s}`
+    block), `priors`, `noise_models`, `noise_menu` and `planet_modes`; any other
+    block (`sampler`, `output`, ...) is refused with the keyword that sets it.
+"""
 
 
 def replot(*channels: Channel, output_dir, plots, priors: dict | None = None,
@@ -154,12 +188,19 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
            jitter: Any = "default", trend_order: int = 0,
            noise: Any = None, engine: _eng.Engine | None = None,
            stopping: Stopping | None = None, stop_file=None, output_dir=None,
-           priors: dict | None = None,
+           priors: dict | None = None, config_overrides: dict | None = None,
            session=None, **model_kw) -> Any:
     """Fit radial velocities alone.
 
     `planets` may be an int (fixed) or a range (trans-dimensional — the planet
     count is then inferred, see also `select_planets`).
+
+    Noise: `noise_models=[{"kind": "CeleriteRotation", "channel": "rv",
+    "instruments": ["HARPS"], "kwargs": {...}}]` is a job config's
+    `noise_models` block; `noise_menu={"indicators": ["bis", "fwhm"]}` is its
+    `noise_menu` (with `transdim=` the menu's models are toggled by the sampler).
+    The activity columns they read come from `RV(indicators=..., indicator_cols=...)`.
+    `noise` is the older spelling of `noise_models`.
     """
     if isinstance(rv, RV):
         # The channel carries jitter and trend_order; the keywords were
@@ -175,7 +216,8 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
         ch = RV(data=rv, jitter=jitter, trend_order=trend_order)
     return _run(_sess(session), "fit_rv", [ch], planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
-                priors=priors, star=True, **model_kw, extra={"noise": noise})
+                priors=priors, star=True, config_overrides=config_overrides,
+                **model_kw, extra={"noise": noise})
 
 
 def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
@@ -183,7 +225,7 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
                 limb_darkening: str = "quadratic", rho_star: Any = None,
                 gravity_darkening: bool = False, engine: _eng.Engine | None = None,
                 stopping: Stopping | None = None, stop_file=None, output_dir=None,
-                priors: dict | None = None,
+                priors: dict | None = None, config_overrides: dict | None = None,
                 session=None, **model_kw) -> Any:
     """Fit transit photometry alone.
 
@@ -194,8 +236,9 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
 
     The other photometry options (`exposure_time`, `dilution`, `jitter`) are
     those of the `Transit` channel; pass a `Transit` for them. `limb_darkening`
-    must be "quadratic" or "kipping" (one model), and `gravity_darkening=True`
-    raises: the gravity-darkened transit is a job-config option.
+    must be "quadratic" or "kipping" (one model). `gravity_darkening=True` fits
+    the gravity-darkened transit (planet mode `PM_GD`, which constrains i★
+    separately from lambda); `planet_modes=[...]` names any mode of a job config.
     """
     if rho_star is not None:
         raise TypeError(
@@ -216,7 +259,8 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
     extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_transit", [ch], planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
-                priors=priors, star=True, extra=extra, **model_kw)
+                priors=priors, star=True, extra=extra,
+                config_overrides=config_overrides, **model_kw)
 
 
 def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
@@ -225,7 +269,7 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
                    name: str | None = None,
                    engine: _eng.Engine | None = None,
                    stopping: Stopping | None = None, stop_file=None, output_dir=None,
-                   priors: dict | None = None,
+                   priors: dict | None = None, config_overrides: dict | None = None,
                    session=None, **model_kw) -> Any:
     """Fit absolute or relative astrometry alone (no RV).
 
@@ -252,14 +296,15 @@ def fit_astrometry(*, iad=None, hgca=None, gost=None, relast=None,
                     hip_scans=hip_scans)
     return _run(_sess(session), "fit_astrometry", [ch], planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
-                extra=_gaia_extra(gaia_id, name), star=True, **model_kw)
+                extra=_gaia_extra(gaia_id, name), star=True,
+                config_overrides=config_overrides, **model_kw)
 
 
 def fit_rm(rv_in_transit, *, phot,
            flavour: Literal["rm", "reloaded", "arome"] = "reloaded",
            vsini=None, beta=None, lambda_prior=None,
            engine: _eng.Engine | None = None, stopping: Stopping | None = None,
-           priors: dict | None = None,
+           priors: dict | None = None, config_overrides: dict | None = None,
            output_dir=None, session=None, **model_kw) -> Any:
     """Fit the Rossiter-McLaughlin effect in radial velocity.
 
@@ -268,13 +313,19 @@ def fit_rm(rv_in_transit, *, phot,
     with transit depth and impact parameter, so without the photometry the
     projected obliquity is degenerate with the geometry. Pass a `Transit`
     channel, or the same instrument map `fit_transit` takes.
+
+    `planet_modes=["RVPM_RM_GD"]` (one name per planet) replaces the mode the
+    flavour picks, to fit the gravity-darkened transit against the same lambda;
+    `noise_models`, `noise_menu` and `indicator_cols` are the job config's blocks
+    (activity indicators are extra columns of the instrument maps: `{"t": ...,
+    "rv": ..., "rv_err": ..., "bis": ..., "bis_err": ...}`).
     """
     ch = RM(data=rv_in_transit, flavour=flavour, vsini=vsini, beta=beta,
             lambda_prior=lambda_prior)
     ph = phot if isinstance(phot, Transit) else Transit(data=phot)
     return _run(_sess(session), "fit_rm", [ch, ph], planets=1,
                 engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
-                star=True, **model_kw)
+                star=True, config_overrides=config_overrides, **model_kw)
 
 
 def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
@@ -324,36 +375,75 @@ def fit_tomography(nights: Sequence[Night | Mapping[str, Any]], *,
     return JobResult(_sess(session).raw("fit_tomography", payload))
 
 
-def fit_ttv(transit_times, *, planets: int = 2,
+def fit_ttv(transit_times=None, *, phot: Transit | dict | None = None,
+            rv: RV | dict | None = None, nbody: bool = False,
+            planets: int = 2,
             ttv_n_transits: int | dict | None = None,
             ttv_epochs: dict | None = None,
             engine: _eng.Engine | None = None, stopping: Stopping | None = None,
             output_dir=None, priors: dict | None = None,
+            config_overrides: dict | None = None,
             session=None, **model_kw) -> Any:
     """Fit transit timing variations.
 
-    One free time offset per transit listed in `ttv_epochs` ({planet: [epochs]},
-    counted from the first observed transit) or per transit 0..N-1 for
-    `ttv_n_transits` (N, or {planet: N}). Given neither, it takes one offset per
-    measured transit (Nereus 0.9.2 and later). N-body TTVs need RV for the masses:
-    use `run_job` with `RVPM_TTV_NB`."""
-    ch = TTV(transit_times=transit_times)
+    The data are measured mid-transit times (`transit_times`), transit
+    photometry (`phot`, a `Transit` or the instrument map `fit_transit` takes),
+    or both. With `rv` (an `RV` channel or instrument map) the model is
+    RVPM_TTV, whose amplitudes give the planets' masses; without it PM_TTV.
+    `nbody=True` selects the N-body model (RVPM_TTV_NB) over the analytic one:
+    it predicts the TTVs from the masses, so it needs `rv` and fits no offsets
+    (`ttv_n_transits` and `ttv_epochs` are refused with it).
+
+    The analytic model puts one free time offset on each transit listed in
+    `ttv_epochs` ({planet: [epochs]}, counted from the first observed transit)
+    or on transits 0..N-1 for `ttv_n_transits` (N, or {planet: N}). Given
+    neither, it takes one offset per measured transit (Nereus 0.9.2 and later);
+    photometry with no transit times for a planet needs one of the two.
+    """
+    if transit_times is None and phot is None:
+        raise ValueError("fit_ttv needs measured transit_times, photometry "
+                         "(phot=), or both")
+    if nbody:
+        if rv is None:
+            raise ValueError(
+                "fit_ttv(nbody=True) needs rv=: the N-body TTVs come from the "
+                "planets' masses, which come from their RV semi-amplitudes; use "
+                "nbody=False for free per-transit offsets")
+        if ttv_n_transits is not None or ttv_epochs is not None:
+            raise ValueError(
+                "ttv_n_transits and ttv_epochs place the free offsets of the "
+                "analytic model; nbody=True predicts the TTVs and fits none")
+    chans: list[Channel] = []
+    if transit_times is not None:
+        chans.append(transit_times if isinstance(transit_times, TTV)
+                     else TTV(transit_times=transit_times))
+    if phot is not None:
+        chans.append(phot if isinstance(phot, Transit) else Transit(data=phot))
+    if rv is not None:
+        chans.append(rv if isinstance(rv, RV) else RV(data=rv))
     extra = {k: v for k, v in (("ttv_n_transits", ttv_n_transits),
                                ("ttv_epochs", ttv_epochs)) if v is not None}
-    return _run(_sess(session), "fit_ttv", [ch], planets=planets,
+    if nbody:
+        extra["nbody"] = True
+    return _run(_sess(session), "fit_ttv", chans, planets=planets,
                 engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
-                extra=extra or None, star=True, **model_kw)
+                extra=extra or None, star=True, config_overrides=config_overrides,
+                **model_kw)
 
 
 def fit_binary(primary, secondary=None, *, engine: _eng.Engine | None = None,
                stopping: Stopping | None = None, output_dir=None,
-               priors: dict | None = None,
+               priors: dict | None = None, config_overrides: dict | None = None,
                session=None, **model_kw) -> Any:
-    """Fit a spectroscopic binary (SB1 if `secondary` is None, else SB2)."""
+    """Fit a spectroscopic binary (SB1 if `secondary` is None, else SB2).
+
+    `noise_models`, `noise_menu`, `planet_modes` and `indicator_cols` are the
+    job config's blocks, as for `fit_rv`.
+    """
     ch = SB2(primary=primary, secondary=secondary)
     return _run(_sess(session), "fit_binary", [ch], planets=1,
                 engine=engine, stopping=stopping, output_dir=output_dir, priors=priors,
-                star=True, **model_kw)
+                star=True, config_overrides=config_overrides, **model_kw)
 
 
 # --- several techniques together ---------------------------------------------
@@ -363,6 +453,7 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
               gaia_id: int | str | None = None, name: str | None = None,
               engine: _eng.Engine | None = None, stopping: Stopping | None = None, stop_file=None,
               output_dir=None, priors: dict | None = None,
+              config_overrides: dict | None = None,
               session=None, **model_kw) -> Any:
     """Fit several techniques simultaneously.
 
@@ -386,6 +477,10 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
     `gaia_id` / `name` (with an `Astrometry` channel) query the Gaia DR3
     parallax at run time for the default `plx` prior; see `fit_astrometry`.
     Without astrometry, or with your own `priors["plx"]`, nothing is queried.
+
+    Model options a channel set does not imply are keywords: `planet_modes`
+    (one name per planet, e.g. `["RVPM_GD"]` for a gravity-darkened transit
+    with RV), `noise_models`, `noise_menu` and `ttv_epochs`; see `fit_rv`.
     """
     if not channels:
         raise ValueError("fit_joint needs at least one channel; for a single "
@@ -403,7 +498,8 @@ def fit_joint(*channels: Channel, planets: int | Sequence[int] = 1,
     extra = _gaia_extra(gaia_id, name, {"use_rho_s": True} if use_rho_s else None)
     return _run(_sess(session), "fit_joint", list(channels), planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir, priors=priors,
-                extra=extra, star=True, **model_kw)
+                extra=extra, star=True, config_overrides=config_overrides,
+                **model_kw)
 
 
 def _sess(session):
@@ -411,6 +507,11 @@ def _sess(session):
         return session
     from ._api import _shared_session
     return _shared_session()
+
+
+for _f in (fit_rv, fit_transit, fit_astrometry, fit_rm, fit_ttv, fit_binary,
+           fit_joint):
+    _f.__doc__ = (_f.__doc__ or "").rstrip() + "\n" + _CONFIG_OVERRIDES_DOC
 
 
 __all__ = ["fit_rv", "fit_transit", "fit_astrometry", "fit_rm",
