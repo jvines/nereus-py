@@ -72,3 +72,16 @@ def test_mixed_old_and_new_entries():
     rows = {r[0]: r for r in p._rows()}
     assert rows["gamma_TESS"][4] == ""
     assert rows["gamma_HARPS"][4] == "m/s"
+
+
+def test_derived_rows_have_units_without_a_runtime_unit():
+    from astronereus._result import _unit_of
+    assert _unit_of("trend_P_min") == "d"
+    assert _unit_of("trend_K_min") == "m/s"
+    assert _unit_of("trend_Msini_min") == "M_jup"
+    assert _unit_of("logg_s") == "dex"
+    assert _unit_of("M_s_rho") == "M_sun"
+    assert _unit_of("sep_mas_k1") == "mas"
+    assert _unit_of("omega_p_deg_k1") == "deg"
+    # the runtime's unit wins
+    assert _unit_of("trend_P_min", {"unit": "d"}) == "d"

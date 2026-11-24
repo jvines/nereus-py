@@ -130,6 +130,12 @@ _UNITS = {
     "inc": "rad", "Omega": "rad", "w": "rad", "omega": "rad",
     "Mo": "rad", "M0": "rad", "lambda": "rad",
     "phic": "rad",                  # transit phase 2pi (Tc - t_ref_c) / P
+    # derived rows (Nereus sends their unit; these cover an older runtime and
+    # keep the "trend" prefix rule below from calling them m/s)
+    "omega_p_deg": "deg", "sep_mas": "mas", "pa_deg": "deg",
+    "trend_P_min": "d", "trend_K_min": "m/s",
+    "trend_Msini_min": "M_jup", "trend_Mc_min_torres": "M_jup",
+    "M_s_rho": "M_sun", "logg_s": "dex",
 }
 _M_JUP_PER_M_SUN = 1047.5655        # IAU 2015 nominal
 _M_EARTH_PER_M_SUN = 332946.0787
@@ -146,7 +152,8 @@ _M_EARTH_PER_M_SUN = 332946.0787
 #            cannot break. Gaia-4 fitted on DR4 abscissae shows it plainly:
 #            sesinw median +0.320 with lo16 -0.299.
 _CIRC = {"Omega", "w", "omega", "Mo", "M0", "lambda", "phic",
-         "Omega_deg", "w_deg", "omega_deg", "Mo_deg", "lambda_deg", "phic_deg"}
+         "Omega_deg", "w_deg", "omega_deg", "omega_p_deg", "Mo_deg", "lambda_deg",
+         "phic_deg", "pa_deg"}
 _SIGNED = {"sesinw", "secosw", "esinw", "ecosw"}
 
 
