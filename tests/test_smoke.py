@@ -105,6 +105,89 @@ def test_one_real_rv_fit(session, tmp_path):
     assert res.status != "failed", getattr(res, "error", res)
 
 
+# Every RV channel option reaches the model. The daemon used to pass fit_rv the
+# channel's `data` alone, so `fit_rv(rv, trend_order=1)` returned no `dvdt` and
+# the other options were dropped with it.
+_TREND_ENGINE = engines.PTEmcee(n_temps=3, n_walkers=24, n_steps=1500, n_burnin=500)
+_QUICK = engines.PTEmcee(n_temps=2, n_walkers=16, n_steps=200, n_burnin=100)
+
+
+def _trend_rv(seed=1, planet=False):
+    rng = np.random.default_rng(seed)
+    t = np.sort(rng.uniform(55000.0, 58000.0, 60))
+    rv = 3.0 + 0.02 * (t - t.mean()) + rng.normal(0, 2.0, t.size)
+    if planet:
+        rv = rv + 15.0 * np.sin(2 * np.pi * t / 37.3)
+    return t, rv, np.full(t.size, 2.0)
+
+
+@pytest.mark.parametrize("planets", [[], 1])
+def test_fit_rv_trend_order_reaches_the_model(session, planets):
+    t, rv, err = _trend_rv(planet=planets == 1)
+    pri = {"P_k1": {"type": "uniform", "lo": 30.0, "hi": 45.0}} if planets == 1 else None
+    res = session.fit_rv({"S": {"t": t, "rv": rv, "rv_err": err}}, planets=planets,
+                         trend_order=1, engine=_TREND_ENGINE, priors=pri,
+                         science=False)
+    assert "dvdt" in res.params
+    assert abs(float(res.params["dvdt"]) - 0.02) < 0.004
+
+
+def test_rv_channel_options_reach_the_model(session):
+    t, rv, err = _trend_rv()
+    h = t.size // 2
+    two = {"A": {"t": t[:h], "rv": rv[:h], "rv_err": err[:h]},
+           "B": {"t": t[h:], "rv": rv[h:] + 5.0, "rv_err": err[h:]}}
+
+    def names(**kw):
+        return set(session.fit_rv(astronereus.RV(data=two, **kw), planets=[],
+                                  engine=_QUICK, science=False).params)
+
+    base = names()
+    assert {"gamma_A", "gamma_B", "sigma_A", "sigma_B"} <= base
+    g = {n for n in names(gamma_per_instrument=False) if n.startswith("gamma_")}
+    assert len(g) == 1
+    assert not any(n.startswith("gamma_") for n in names(marginalize_gamma=True))
+    s = {n for n in names(share={"sigma": [["A", "B"]]}) if n.startswith("sigma_")}
+    assert len(s) == 1
+    assert "sigma_A" not in names(jitter={"A": 1.5})
+    with pytest.raises(astronereus.DaemonError, match="sigma_A"):
+        session.fit_rv(astronereus.RV(data=two, jitter=2.0), planets=[], engine=_QUICK,
+                       priors={"sigma_A": {"type": "fixed", "value": 1.0}})
+    with pytest.raises(astronereus.DaemonError, match="indicators"):
+        session.raw("fit_rv", {"op": "fit_rv", "planets": [], "engine": None,
+                               "channels": [{**astronereus.RV(data=two).to_wire(),
+                                             "indicators": {"x": [1.0]}}]})
+
+
+def test_transit_channel_options_reach_the_model(session):
+    tt = np.arange(0.0, 6.0, 30 / 1440)
+    ph = {"TESS": {"t": tt, "flux": np.ones(tt.size),
+                   "flux_err": np.full(tt.size, 1e-3)}}
+    pri = {"P_k1": {"type": "uniform", "lo": 2.9, "hi": 3.1},
+           "Tc_k1": {"type": "uniform", "lo": 0.9, "hi": 1.1}}
+
+    def names(pri=pri, **kw):
+        return set(session.fit_transit(astronereus.Transit(data=ph, **kw),
+                                       engine=_QUICK, priors=pri, time_anchor="Tc",
+                                       science=False).params)
+
+    assert "dilution_TESS" not in names(exposure_time=1800.0)
+    assert "dilution_TESS" in names(
+        exposure_time=1800.0,
+        dilution={"TESS": {"type": "uniform", "lo": 0.0, "hi": 0.5}})
+    with pytest.raises(astronereus.DaemonError, match="dilution_TESS"):
+        names(dilution={"TESS": 0.2},
+              pri={**pri, "dilution_TESS": {"type": "fixed", "value": 0.1}})
+
+
+def test_fit_joint_refuses_a_channel_it_would_drop(session):
+    t, rv, err = _trend_rv()
+    d = {"S": {"t": t, "rv": rv, "rv_err": err}}
+    with pytest.raises(astronereus.DaemonError, match="RM_R"):
+        session.fit_joint(astronereus.RV(data=d), astronereus.RM(data=d),
+                          engine=_QUICK)
+
+
 # RV + HGCA through fit_joint. Until Nereus 0.8.8 the HGCA and GOST blocks
 # reached Julia's `Data` as raw dicts and died in its constructor, so no
 # Python fit could use either.

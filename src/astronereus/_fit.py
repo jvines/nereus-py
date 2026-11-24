@@ -161,8 +161,18 @@ def fit_rv(rv: RV | dict, *, planets: int | Sequence[int] = 1,
     `planets` may be an int (fixed) or a range (trans-dimensional — the planet
     count is then inferred, see also `select_planets`).
     """
-    ch = rv if isinstance(rv, RV) else RV(data=rv, jitter=jitter,
-                                          trend_order=trend_order)
+    if isinstance(rv, RV):
+        # The channel carries jitter and trend_order; the keywords were
+        # silently ignored next to it.
+        given = [k for k, v, d in (("jitter", jitter, "default"),
+                                   ("trend_order", trend_order, 0)) if v != d]
+        if given:
+            raise TypeError(
+                f"fit_rv: {', '.join(given)} given alongside an RV channel, which "
+                "carries its own; set it on the RV(...) instead")
+        ch = rv
+    else:
+        ch = RV(data=rv, jitter=jitter, trend_order=trend_order)
     return _run(_sess(session), "fit_rv", [ch], planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
                 priors=priors, star=True, **model_kw, extra={"noise": noise})
@@ -191,9 +201,18 @@ def fit_transit(phot: Transit | dict, *, planets: int | Sequence[int] = 1,
         raise TypeError(
             "fit_transit: `rho_star` was never read. Pass use_rho_s=True and "
             "the density prior (solar units) as priors={\"rho_s\": {...}}")
-    ch = phot if isinstance(phot, Transit) else Transit(
-        data=phot, limb_darkening=limb_darkening,
-        gravity_darkening=gravity_darkening)
+    if isinstance(phot, Transit):
+        given = [k for k, v, d in (("limb_darkening", limb_darkening, "quadratic"),
+                                   ("gravity_darkening", gravity_darkening, False))
+                 if v != d]
+        if given:
+            raise TypeError(
+                f"fit_transit: {', '.join(given)} given alongside a Transit "
+                "channel, which carries its own; set it on the Transit(...) instead")
+        ch = phot
+    else:
+        ch = Transit(data=phot, limb_darkening=limb_darkening,
+                     gravity_darkening=gravity_darkening)
     extra = {"use_rho_s": True} if use_rho_s else None
     return _run(_sess(session), "fit_transit", [ch], planets=planets,
                 engine=engine, stopping=stopping, stop_file=stop_file, output_dir=output_dir,
