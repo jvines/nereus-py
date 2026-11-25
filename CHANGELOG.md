@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.51
+
+- Runs on the Nereus 0.9.12 runtime: zero-planet `run_job` from JSON, phase folds
+  without the baseline trend, Ctrl-C in `pt_emcee` stops as an interrupt, missing
+  activity-indicator values are masked, trans-dim occupancy calibration. No client
+  changes.
+
 ## 0.4.50
 
 - **Every engine carries every keyword its Julia sampler declares** (the field
