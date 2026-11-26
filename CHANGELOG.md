@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.52
+
+- Runs on the Nereus 0.9.13 runtime: new default `rv_activity_corr` plot, 3:2 phase
+  folds that frame what they draw, instrument colors in RV, RM, PPC and activity-GP
+  plots come from pastelised samples of the cool colormap, spread over the number of
+  instruments; the RV phase fold colors by instrument. No client changes.
+
 ## 0.4.51
 
 - Runs on the Nereus 0.9.12 runtime: zero-planet `run_job` from JSON, phase folds
