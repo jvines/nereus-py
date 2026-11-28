@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.53
+
+- Runs on the Nereus 0.9.14 runtime: trans-dim runs report their prior on k,
+  occupancy health, accepted k transitions, adjacent ln B and the mixture evidence;
+  a warning when P(k = max_kplanet) > 0.5 and when the evidence comes from a
+  non-converged run (`evidence_reliable`); one convergence verdict across all fields.
+- `PT`, `PTEmcee` and `PTWhitening` take `informed_init` and `period_jump_prob`
+  (opt-in): periodogram-informed period starts and period jumps for fixed-k runs.
+
 ## 0.4.52
 
 - Runs on the Nereus 0.9.13 runtime: new default `rv_activity_corr` plot, 3:2 phase

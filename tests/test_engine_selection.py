@@ -121,3 +121,12 @@ def test_trim_burnin_is_opt_in_and_reachable(cls):
     nothing unless asked."""
     assert cls().options() == {}
     assert cls(trim_burnin=True).options() == {"trim_burnin": True}
+
+
+@pytest.mark.parametrize("cls", [engines.PT, engines.PTEmcee, engines.PTWhitening])
+def test_informed_init_and_period_jumps_are_reachable(cls):
+    """Fixed-k informed starts and periodogram period jumps (Nereus 0.9.14) are
+    opt-in in Julia; the client must declare both fields to pass them."""
+    o = cls(informed_init=True, period_jump_prob=0.05).options()
+    assert o == {"informed_init": True, "period_jump_prob": 0.05}
+    assert cls().options() == {}

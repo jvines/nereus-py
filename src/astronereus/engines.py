@@ -96,6 +96,8 @@ class PT(Engine):
     resume: bool | None = None
     swap_min: float | None = None
     n_warmup_rounds: int | None = None
+    informed_init: bool | None = None        # Nereus 0.9.14 and later; see PTEmcee
+    period_jump_prob: float | None = None    # Nereus 0.9.14 and later; see PTEmcee
 
 
 @dataclass
@@ -148,6 +150,8 @@ class PTWhitening(Engine):
     seed: int | None = None
     node_flip: float | None = None           # Nereus >= 0.6.1; see PTEmcee
     de_move: float | None = None             # Nereus 0.9.0 and later; see PTEmcee
+    informed_init: bool | None = None        # Nereus 0.9.14 and later; see PTEmcee
+    period_jump_prob: float | None = None    # Nereus 0.9.14 and later; see PTEmcee
     show_progress: bool | None = None
     checkpoint: str | None = None
     checkpoint_interval: float | None = None
@@ -221,6 +225,15 @@ class PTEmcee(Engine):
     # with R-hat at 1.0002.
     # 0.5 by default in Julia; `0` restores the stretch-only kernel draw for draw.
     de_move: float | None = None
+    # Nereus 0.9.14 and later, opt-in. Fixed-k runs: each walker starts each
+    # planet's period on a residual-periodogram peak (with the phase that peak
+    # implies) instead of the prior draw.
+    informed_init: bool | None = None
+    # Nereus 0.9.14 and later, opt-in (0.0 in Julia). Per walker, step and planet,
+    # the probability of a period jump: 3/4 an independence draw from the
+    # residual-periodogram mixture, 1/4 a harmonic jump P -> rP with
+    # r in {2, 1/2, 3, 1/3, 3/2, 2/3}; Metropolis-Hastings corrected.
+    period_jump_prob: float | None = None
     # Nereus 0.9.2 and later, opt-in. At the end of burn-in, if the stranded-walker
     # pruning would still move a beta = 1 walker (the cold rung is split between
     # modes, e.g. most walkers in a 2P alias and a few at P), burn-in goes on in
